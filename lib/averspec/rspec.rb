@@ -16,7 +16,7 @@ module Aver
             protocol_ctx = adapter.protocol.setup
             ctx = Aver::Context.new(domain: domain, adapter: adapter, protocol_ctx: protocol_ctx)
             begin
-              block.call(ctx)
+              instance_exec(ctx, &block)
             ensure
               adapter.protocol.teardown(protocol_ctx)
             end

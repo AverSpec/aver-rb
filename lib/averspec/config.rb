@@ -21,6 +21,18 @@ module Aver
       []
     end
 
+    def snapshot
+      {
+        adapters: @adapters.dup,
+        teardown_failure_mode: @teardown_failure_mode,
+      }
+    end
+
+    def restore(snapshot)
+      @adapters = snapshot[:adapters].dup
+      @teardown_failure_mode = snapshot[:teardown_failure_mode]
+    end
+
     def reset!
       @adapters = []
       @teardown_failure_mode = :fail

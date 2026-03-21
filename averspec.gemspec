@@ -6,9 +6,12 @@ Gem::Specification.new do |s|
   s.authors     = ["AverSpec"]
   s.license     = "MIT"
   s.homepage    = "https://averspec.dev"
-  s.files       = Dir["lib/**/*.rb"]
+  s.files       = Dir["lib/**/*.rb", "exe/*"]
+  s.executables = ["aver"]
+  s.bindir      = "exe"
 
   s.required_ruby_version = ">= 3.2"
 
   s.add_development_dependency "rspec", "~> 3.0"
+  s.add_development_dependency "webrick", "~> 1.8"
 end

@@ -1,0 +1,6 @@
+#!/usr/bin/env ruby
+
+require "averspec"
+require "averspec/cli"
+
+Aver::CLI.run(ARGV)
