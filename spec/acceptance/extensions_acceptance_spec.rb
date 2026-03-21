@@ -53,4 +53,17 @@ RSpec.describe "Extensions acceptance" do
     expect(found.length).to eq(1)
     expect(found[0]).to equal(parent_adapter)
   end
+
+  it "extension tracks parent domain" do
+    parent = Aver.domain("ExtParentTrack") do
+      action :base_op
+    end
+
+    child = parent.extend("ExtChildTrack") do
+      action :extra
+    end
+
+    expect(child.parent).to eq(parent)
+    expect(child.parent.name).to eq("ExtParentTrack")
+  end
 end

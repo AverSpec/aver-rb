@@ -41,4 +41,16 @@ RSpec.describe "Domain vocabulary acceptance" do
       expect(m.domain_name).to eq("propagation")
     end
   end
+
+  it "markers report correct kind" do
+    d = Aver.domain("vocab-kinds") do
+      action :do_thing
+      query :get_thing, returns: Hash
+      assertion :check_thing
+    end
+
+    expect(d.markers[:do_thing].kind).to eq(:action)
+    expect(d.markers[:get_thing].kind).to eq(:query)
+    expect(d.markers[:check_thing].kind).to eq(:assertion)
+  end
 end

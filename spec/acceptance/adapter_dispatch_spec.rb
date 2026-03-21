@@ -56,4 +56,56 @@ RSpec.describe "Adapter dispatch acceptance" do
     expect(ctx.trace.length).to eq(1)
     expect(ctx.trace[0].status).to eq("fail")
   end
+
+  it "multiple adapters registered for same domain" do
+    d = Aver.domain("dispatch-multi") { action :do_work }
+    p1 = Aver.unit(name: "unit") { {} }
+    p2 = Aver.unit(name: "http") { {} }
+    a1 = Aver.implement(d, protocol: p1) do
+      handle(:do_work) { |ctx, payload| nil }
+    end
+    a2 = Aver.implement(d, protocol: p2) do
+      handle(:do_work) { |ctx, payload| nil }
+    end
+
+    config = Aver::Configuration.new
+    config.adapters << a1
+    config.adapters << a2
+
+    found = config.find_adapters(d)
+    expect(found.length).to eq(2)
+  end
+
+  it "parent chain lookup finds parent adapter" do
+    parent = Aver.domain("parent-chain") { action :base_op }
+    child = parent.extend("child-chain") { action :child_op }
+
+    p = Aver.unit { {} }
+    parent_adapter = Aver.implement(parent, protocol: p) do
+      handle(:base_op) { |ctx, payload| nil }
+    end
+
+    config = Aver::Configuration.new
+    config.adapters << parent_adapter
+
+    found = config.find_adapters(child)
+    expect(found.length).to eq(1)
+    expect(found[0]).to equal(parent_adapter)
+    expect(child.parent).to eq(parent)
+  end
+
+  it "query returns typed result value" do
+    d = Aver.domain("dispatch-typed") { query :get_count, returns: Integer }
+    p = Aver.unit { {} }
+    a = Aver.implement(d, protocol: p) do
+      handle(:get_count) { |ctx, payload| 42 }
+    end
+    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: p.setup)
+    result = ctx.query.get_count
+
+    expect(result).to eq(42)
+    expect(result).to be_a(Integer)
+    expect(ctx.trace[0].kind).to eq("query")
+    expect(ctx.trace[0].status).to eq("pass")
+  end
 end

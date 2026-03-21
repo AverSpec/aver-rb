@@ -72,4 +72,17 @@ RSpec.describe "Action trace acceptance" do
     expect(trace[1].category).to eq("when")
     expect(trace[2].category).to eq("then")
   end
+
+  it "trace is empty before any operations" do
+    d = Aver.domain("trace-empty") do
+      action :noop
+    end
+    p = Aver.unit { {} }
+    a = Aver.implement(d, protocol: p) do
+      handle(:noop) { |ctx, payload| nil }
+    end
+    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: p.setup)
+
+    expect(ctx.trace).to be_empty
+  end
 end
