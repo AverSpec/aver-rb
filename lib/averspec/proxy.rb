@@ -7,7 +7,7 @@ module Aver
       query: [:query],
     }.freeze
 
-    def initialize(domain:, adapter:, protocol_ctx:, trace:, category:, called_markers: nil)
+    def initialize(domain:, adapter:, protocol_ctx:, trace:, category:, called_markers: nil, protocol: nil)
       @domain = domain
       @adapter = adapter
       @ctx = protocol_ctx
@@ -15,6 +15,7 @@ module Aver
       @category = category
       @allowed_kinds = ALLOWED[category]
       @called_markers = called_markers
+      @protocol = protocol
     end
 
     def method_missing(name, *args, **kwargs, &block)
@@ -32,25 +33,71 @@ module Aver
       begin
         result = @adapter.execute(name, @ctx, payload)
         elapsed = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000
-        @trace << TraceEntry.new(
+        entry = TraceEntry.new(
           kind: marker.kind.to_s, category: @category.to_s,
           name: "#{@domain.name}.#{name}", payload: payload,
           status: "pass", duration_ms: elapsed, result: result
         )
+        _apply_telemetry_verification(entry, payload, marker)
+        @trace << entry
         result
       rescue => e
         elapsed = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000
-        @trace << TraceEntry.new(
+        entry = TraceEntry.new(
           kind: marker.kind.to_s, category: @category.to_s,
           name: "#{@domain.name}.#{name}", payload: payload,
           status: "fail", duration_ms: elapsed, error: e.message
         )
+        @trace << entry
         raise
       end
     end
 
     def respond_to_missing?(name, include_private = false)
       @domain.markers.key?(name) || super
+    end
+
+    private
+
+    def _apply_telemetry_verification(entry, payload, marker)
+      return unless marker.telemetry
+      return unless @protocol
+      collector = @protocol.telemetry
+      return unless collector
+
+      mode = Aver.resolve_telemetry_mode
+      return if mode == "off"
+
+      expectation = if marker.telemetry.respond_to?(:call)
+        marker.telemetry.call(payload)
+      else
+        marker.telemetry
+      end
+
+      spans = collector.get_spans
+      matched_span = spans.find { |s| _match_span(s, expectation) }
+
+      if matched_span
+        entry.telemetry = TelemetryMatchResult.new(
+          expected: expectation, matched: true, matched_span: matched_span
+        )
+      else
+        entry.telemetry = TelemetryMatchResult.new(
+          expected: expectation, matched: false
+        )
+        if mode == "fail"
+          entry.status = "fail"
+          raise "Telemetry verification failed: expected span '#{expectation.span}' not found"
+        end
+      end
+    end
+
+    def _match_span(span, expectation)
+      return false unless span.name == expectation.span
+      (expectation.attributes || {}).each do |key, value|
+        return false unless span.attributes[key] == value
+      end
+      true
     end
   end
 end

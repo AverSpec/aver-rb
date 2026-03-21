@@ -44,22 +44,21 @@ module Aver
     setup_order = []
     namespaces = {}
 
-    config.each do |ns_name, (domain, adapter)|
-      proto_ctx = adapter.protocol.setup
-      protocol_contexts[ns_name] = proto_ctx
-      setup_order << ns_name
-
-      namespaces[ns_name] = NamespaceProxy.new(
-        domain: domain,
-        adapter: adapter,
-        protocol_ctx: proto_ctx,
-        trace: trace
-      )
-    end
-
-    ctx = ComposedContext.new(namespaces: namespaces, trace: trace)
-
     begin
+      config.each do |ns_name, (domain, adapter)|
+        proto_ctx = adapter.protocol.setup
+        protocol_contexts[ns_name] = proto_ctx
+        setup_order << ns_name
+
+        namespaces[ns_name] = NamespaceProxy.new(
+          domain: domain,
+          adapter: adapter,
+          protocol_ctx: proto_ctx,
+          trace: trace
+        )
+      end
+
+      ctx = ComposedContext.new(namespaces: namespaces, trace: trace)
       yield ctx
     ensure
       setup_order.reverse_each do |ns_name|

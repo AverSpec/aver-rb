@@ -9,6 +9,7 @@ module Aver
       @markers = {}
       @parent = nil
       @pending_markers = []
+      @inherited_marker_names = Set.new
       if block
         instance_eval(&block)
         _check_collisions
@@ -44,6 +45,7 @@ module Aver
       @markers.each do |k, v|
         child.markers[k] = v
         child.instance_variable_get(:@pending_markers) << { name: k, section: v.kind }
+        child.instance_variable_get(:@inherited_marker_names).add(k)
       end
       child.instance_variable_set(:@parent, self)
       if block
@@ -66,8 +68,16 @@ module Aver
       @pending_markers.each do |entry|
         marker_name = entry[:name]
         section = entry[:section]
-        if seen.key?(marker_name) && seen[marker_name] != section
-          collisions << "#{marker_name} (defined in both #{seen[marker_name]} and #{section})"
+        if seen.key?(marker_name)
+          prev_section = seen[marker_name]
+          # Cross-section collision always raises
+          if prev_section != section
+            collisions << "#{marker_name} (defined in both #{prev_section} and #{section})"
+          elsif @inherited_marker_names.include?(marker_name)
+            # Same-section duplicate that shadows an inherited marker
+            collisions << "#{marker_name} (duplicate in #{section})"
+          end
+          # Same-section duplicate within a single domain definition is OK (last wins)
         end
         seen[marker_name] = section
       end
