@@ -1,17 +1,13 @@
 require "spec_helper"
 
-RSpec.describe "Telemetry acceptance" do
-  around(:each) do |example|
-    old_mode = ENV["AVER_TELEMETRY_MODE"]
-    example.run
-    if old_mode
-      ENV["AVER_TELEMETRY_MODE"] = old_mode
-    else
-      ENV.delete("AVER_TELEMETRY_MODE")
-    end
-  end
+TelemetryDomain = Aver.domain("telemetry-test") do
+  action :run_span_matching
+  assertion :span_matched_correctly
+end
 
-  it "span matching in full context" do
+TelemetryAdapter = Aver.implement(TelemetryDomain, protocol: Aver.unit { {} }) do
+  handle(:run_span_matching) do |state, p|
+    old_mode = ENV["AVER_TELEMETRY_MODE"]
     ENV["AVER_TELEMETRY_MODE"] = "fail"
 
     d = Aver.domain("TelAccept") do
@@ -42,9 +38,29 @@ RSpec.describe "Telemetry acceptance" do
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup, protocol: proto)
     ctx.when.checkout
 
-    entry = ctx.trace[0]
-    expect(entry.telemetry).not_to be_nil
-    expect(entry.telemetry.matched).to be true
-    expect(entry.telemetry.matched_span.attributes["order.id"]).to eq("42")
+    state[:trace_entry] = ctx.trace[0]
+  ensure
+    if old_mode
+      ENV["AVER_TELEMETRY_MODE"] = old_mode
+    else
+      ENV.delete("AVER_TELEMETRY_MODE")
+    end
+  end
+
+  handle(:span_matched_correctly) do |state, p|
+    entry = state[:trace_entry]
+    raise "Expected telemetry to be present" if entry.telemetry.nil?
+    raise "Expected telemetry.matched to be true" unless entry.telemetry.matched == true
+    raise "Expected order.id '42', got '#{entry.telemetry.matched_span.attributes["order.id"]}'" unless entry.telemetry.matched_span.attributes["order.id"] == "42"
+  end
+end
+
+Aver.configuration.adapters << TelemetryAdapter
+
+RSpec.describe "Telemetry acceptance", aver: TelemetryDomain do
+
+  aver_test "span matching in full context" do |ctx|
+    ctx.when.run_span_matching
+    ctx.then.span_matched_correctly
   end
 end

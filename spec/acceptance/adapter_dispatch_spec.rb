@@ -1,63 +1,72 @@
 require "spec_helper"
 
-RSpec.describe "Adapter dispatch acceptance" do
-  it "dispatches actions through proxy" do
+AdapterDispatchDomain = Aver.domain("adapter-dispatch") do
+  action :dispatch_action_through_proxy
+  action :dispatch_query_returns_result
+  action :dispatch_assertion_through_proxy
+  action :dispatch_failing_assertion
+  action :setup_multiple_adapters
+  action :setup_parent_chain
+  action :dispatch_typed_query
+  assertion :action_trace_correct
+  assertion :query_result_and_trace_correct
+  assertion :assertion_trace_correct
+  assertion :failing_assertion_trace_correct
+  assertion :multiple_adapters_found
+  assertion :parent_chain_lookup_works
+  assertion :typed_query_result_correct
+end
+
+AdapterDispatchAdapter = Aver.implement(AdapterDispatchDomain, protocol: Aver.unit { {} }) do
+  handle(:dispatch_action_through_proxy) do |state, p|
     d = Aver.domain("dispatch-action") { action :submit_order }
-    p = Aver.unit { { orders: [] } }
-    a = Aver.implement(d, protocol: p) do
+    proto = Aver.unit { { orders: [] } }
+    a = Aver.implement(d, protocol: proto) do
       handle(:submit_order) { |ctx, payload| ctx[:orders] << payload }
     end
-    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: p.setup)
+    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
     ctx.when.submit_order(id: "order-1")
-
-    trace = ctx.trace
-    expect(trace.length).to eq(1)
-    expect(trace[0].kind).to eq("action")
-    expect(trace[0].category).to eq("when")
-    expect(trace[0].status).to eq("pass")
+    state[:trace] = ctx.trace
   end
 
-  it "dispatches queries and returns results" do
+  handle(:dispatch_query_returns_result) do |state, p|
     d = Aver.domain("dispatch-query") { query :get_status, returns: String }
-    p = Aver.unit { {} }
-    a = Aver.implement(d, protocol: p) do
+    proto = Aver.unit { {} }
+    a = Aver.implement(d, protocol: proto) do
       handle(:get_status) { |ctx, payload| "active" }
     end
-    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: p.setup)
-    result = ctx.query.get_status
-
-    expect(result).to eq("active")
-    expect(ctx.trace[0].kind).to eq("query")
-    expect(ctx.trace[0].status).to eq("pass")
+    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
+    state[:query_result] = ctx.query.get_status
+    state[:trace] = ctx.trace
   end
 
-  it "dispatches assertions through proxy" do
+  handle(:dispatch_assertion_through_proxy) do |state, p|
     d = Aver.domain("dispatch-assert") { assertion :is_valid }
-    p = Aver.unit { {} }
-    a = Aver.implement(d, protocol: p) do
+    proto = Aver.unit { {} }
+    a = Aver.implement(d, protocol: proto) do
       handle(:is_valid) { |ctx, payload| true }
     end
-    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: p.setup)
+    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
     ctx.then.is_valid
-
-    expect(ctx.trace[0].kind).to eq("assertion")
-    expect(ctx.trace[0].status).to eq("pass")
+    state[:trace] = ctx.trace
   end
 
-  it "failing assertion with no prior trace" do
+  handle(:dispatch_failing_assertion) do |state, p|
     d = Aver.domain("dispatch-fail") { assertion :must_pass }
-    p = Aver.unit { {} }
-    a = Aver.implement(d, protocol: p) do
+    proto = Aver.unit { {} }
+    a = Aver.implement(d, protocol: proto) do
       handle(:must_pass) { |ctx, payload| raise "nope" }
     end
-    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: p.setup)
-    expect { ctx.then.must_pass }.to raise_error("nope")
-
-    expect(ctx.trace.length).to eq(1)
-    expect(ctx.trace[0].status).to eq("fail")
+    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
+    begin
+      ctx.then.must_pass
+    rescue => e
+      state[:error_message] = e.message
+    end
+    state[:trace] = ctx.trace
   end
 
-  it "multiple adapters registered for same domain" do
+  handle(:setup_multiple_adapters) do |state, p|
     d = Aver.domain("dispatch-multi") { action :do_work }
     p1 = Aver.unit(name: "unit") { {} }
     p2 = Aver.unit(name: "http") { {} }
@@ -67,45 +76,123 @@ RSpec.describe "Adapter dispatch acceptance" do
     a2 = Aver.implement(d, protocol: p2) do
       handle(:do_work) { |ctx, payload| nil }
     end
-
     config = Aver::Configuration.new
     config.adapters << a1
     config.adapters << a2
-
-    found = config.find_adapters(d)
-    expect(found.length).to eq(2)
+    state[:found_adapters] = config.find_adapters(d)
   end
 
-  it "parent chain lookup finds parent adapter" do
+  handle(:setup_parent_chain) do |state, p|
     parent = Aver.domain("parent-chain") { action :base_op }
     child = parent.extend("child-chain") { action :child_op }
-
-    p = Aver.unit { {} }
-    parent_adapter = Aver.implement(parent, protocol: p) do
+    proto = Aver.unit { {} }
+    parent_adapter = Aver.implement(parent, protocol: proto) do
       handle(:base_op) { |ctx, payload| nil }
     end
-
     config = Aver::Configuration.new
     config.adapters << parent_adapter
-
-    found = config.find_adapters(child)
-    expect(found.length).to eq(1)
-    expect(found[0]).to equal(parent_adapter)
-    expect(child.parent).to eq(parent)
+    state[:found_adapters] = config.find_adapters(child)
+    state[:parent_adapter] = parent_adapter
+    state[:child_domain] = child
+    state[:parent_domain] = parent
   end
 
-  it "query returns typed result value" do
+  handle(:dispatch_typed_query) do |state, p|
     d = Aver.domain("dispatch-typed") { query :get_count, returns: Integer }
-    p = Aver.unit { {} }
-    a = Aver.implement(d, protocol: p) do
+    proto = Aver.unit { {} }
+    a = Aver.implement(d, protocol: proto) do
       handle(:get_count) { |ctx, payload| 42 }
     end
-    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: p.setup)
-    result = ctx.query.get_count
+    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
+    state[:query_result] = ctx.query.get_count
+    state[:trace] = ctx.trace
+  end
 
-    expect(result).to eq(42)
-    expect(result).to be_a(Integer)
-    expect(ctx.trace[0].kind).to eq("query")
-    expect(ctx.trace[0].status).to eq("pass")
+  handle(:action_trace_correct) do |state, p|
+    trace = state[:trace]
+    raise "Expected 1 trace entry, got #{trace.length}" unless trace.length == 1
+    raise "Expected kind 'action', got '#{trace[0].kind}'" unless trace[0].kind == "action"
+    raise "Expected category 'when', got '#{trace[0].category}'" unless trace[0].category == "when"
+    raise "Expected status 'pass', got '#{trace[0].status}'" unless trace[0].status == "pass"
+  end
+
+  handle(:query_result_and_trace_correct) do |state, p|
+    raise "Expected query result 'active', got '#{state[:query_result]}'" unless state[:query_result] == "active"
+    trace = state[:trace]
+    raise "Expected kind 'query', got '#{trace[0].kind}'" unless trace[0].kind == "query"
+    raise "Expected status 'pass', got '#{trace[0].status}'" unless trace[0].status == "pass"
+  end
+
+  handle(:assertion_trace_correct) do |state, p|
+    trace = state[:trace]
+    raise "Expected kind 'assertion', got '#{trace[0].kind}'" unless trace[0].kind == "assertion"
+    raise "Expected status 'pass', got '#{trace[0].status}'" unless trace[0].status == "pass"
+  end
+
+  handle(:failing_assertion_trace_correct) do |state, p|
+    trace = state[:trace]
+    raise "Expected 1 trace entry, got #{trace.length}" unless trace.length == 1
+    raise "Expected status 'fail', got '#{trace[0].status}'" unless trace[0].status == "fail"
+  end
+
+  handle(:multiple_adapters_found) do |state, p|
+    found = state[:found_adapters]
+    raise "Expected 2 adapters, got #{found.length}" unless found.length == 2
+  end
+
+  handle(:parent_chain_lookup_works) do |state, p|
+    found = state[:found_adapters]
+    raise "Expected 1 adapter, got #{found.length}" unless found.length == 1
+    raise "Expected parent adapter" unless found[0].equal?(state[:parent_adapter])
+    raise "Expected child parent to be parent domain" unless state[:child_domain].parent == state[:parent_domain]
+  end
+
+  handle(:typed_query_result_correct) do |state, p|
+    result = state[:query_result]
+    raise "Expected 42, got #{result}" unless result == 42
+    raise "Expected Integer, got #{result.class}" unless result.is_a?(Integer)
+    trace = state[:trace]
+    raise "Expected kind 'query', got '#{trace[0].kind}'" unless trace[0].kind == "query"
+    raise "Expected status 'pass', got '#{trace[0].status}'" unless trace[0].status == "pass"
+  end
+end
+
+Aver.configuration.adapters << AdapterDispatchAdapter
+
+RSpec.describe "Adapter dispatch acceptance", aver: AdapterDispatchDomain do
+
+  aver_test "dispatches actions through proxy" do |ctx|
+    ctx.when.dispatch_action_through_proxy
+    ctx.then.action_trace_correct
+  end
+
+  aver_test "dispatches queries and returns results" do |ctx|
+    ctx.when.dispatch_query_returns_result
+    ctx.then.query_result_and_trace_correct
+  end
+
+  aver_test "dispatches assertions through proxy" do |ctx|
+    ctx.when.dispatch_assertion_through_proxy
+    ctx.then.assertion_trace_correct
+  end
+
+  aver_test "failing assertion with no prior trace" do |ctx|
+    ctx.when.dispatch_failing_assertion
+    ctx.then.failing_assertion_trace_correct
+  end
+
+  aver_test "multiple adapters registered for same domain" do |ctx|
+    ctx.when.setup_multiple_adapters
+    ctx.then.multiple_adapters_found
+  end
+
+  aver_test "parent chain lookup finds parent adapter" do |ctx|
+    ctx.when.setup_parent_chain
+    ctx.then.parent_chain_lookup_works
+  end
+
+  aver_test "query returns typed result value" do |ctx|
+    ctx.when.dispatch_typed_query
+    ctx.then.typed_query_result_correct
   end
 end
