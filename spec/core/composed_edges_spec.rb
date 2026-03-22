@@ -17,7 +17,7 @@ RSpec.describe "Composed suite edge cases" do
   def build_adapter(d, proto)
     handlers = {}
     d.markers.each_key { |name| handlers[name] = ->(ctx, payload) { nil } }
-    Aver::Adapter.new(domain: d, protocol: proto, handlers: handlers)
+    Aver::AdapterInstance.new(domain: d, protocol: proto, handlers: handlers)
   end
 
   it "partial setup failure tears down already-setup domains" do
@@ -42,8 +42,6 @@ RSpec.describe "Composed suite edge cases" do
     expect(setup_log).to include("setup:alpha")
     expect(setup_log).to include("setup:beta")
     expect(teardown_log).to include("teardown:alpha")
-    # beta never completed setup, but composed_suite teardown runs for all that were set up
-    # (In current implementation it attempts teardown for all setup domains in reverse)
   end
 
   it "trace entries carry domain prefix" do

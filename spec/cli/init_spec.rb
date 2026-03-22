@@ -31,8 +31,8 @@ RSpec.describe "Aver::CLI.scaffold_domain" do
         protocol: "unit"
       )
       content = File.read("domains/my_app.rb")
-      expect(content).to include('Aver.domain("my-app")')
-      expect(content).to include("MyApp = ")
+      expect(content).to include("class MyApp < Aver::Domain")
+      expect(content).to include('domain_name "my-app"')
     end
   end
 

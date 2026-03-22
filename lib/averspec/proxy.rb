@@ -19,8 +19,10 @@ module Aver
     end
 
     def method_missing(name, *args, **kwargs, &block)
-      marker = @domain.markers[name]
-      raise NoMethodError, "Domain '#{@domain.name}' has no marker '#{name}'" unless marker
+      domain_markers = _get_markers
+      domain_name = _get_domain_name
+      marker = domain_markers[name]
+      raise NoMethodError, "Domain '#{domain_name}' has no marker '#{name}'" unless marker
 
       unless @allowed_kinds.include?(marker.kind)
         raise TypeError, "ctx.#{@category}.#{name} — '#{name}' is a #{marker.kind}, but ctx.#{@category} only accepts #{@allowed_kinds.join(', ')}"
@@ -35,7 +37,7 @@ module Aver
         elapsed = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000
         entry = TraceEntry.new(
           kind: marker.kind.to_s, category: @category.to_s,
-          name: "#{@domain.name}.#{name}", payload: payload,
+          name: "#{domain_name}.#{name}", payload: payload,
           status: "pass", duration_ms: elapsed, result: result
         )
         _apply_telemetry_verification(entry, payload, marker)
@@ -45,7 +47,7 @@ module Aver
         elapsed = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000
         entry = TraceEntry.new(
           kind: marker.kind.to_s, category: @category.to_s,
-          name: "#{@domain.name}.#{name}", payload: payload,
+          name: "#{domain_name}.#{name}", payload: payload,
           status: "fail", duration_ms: elapsed, error: e.message
         )
         @trace << entry
@@ -54,10 +56,30 @@ module Aver
     end
 
     def respond_to_missing?(name, include_private = false)
-      @domain.markers.key?(name) || super
+      _get_markers.key?(name) || super
     end
 
     private
+
+    def _get_markers
+      if @domain.is_a?(Class) && @domain.respond_to?(:markers)
+        @domain.markers
+      elsif @domain.respond_to?(:markers)
+        @domain.markers
+      else
+        {}
+      end
+    end
+
+    def _get_domain_name
+      if @domain.is_a?(Class) && @domain.respond_to?(:domain_name)
+        @domain.domain_name
+      elsif @domain.respond_to?(:name)
+        @domain.name
+      else
+        "unknown"
+      end
+    end
 
     def _apply_telemetry_verification(entry, payload, marker)
       return unless marker.telemetry

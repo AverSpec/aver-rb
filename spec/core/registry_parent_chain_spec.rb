@@ -19,7 +19,7 @@ RSpec.describe "Registry parent chain lookup" do
     p = Aver.unit(name: proto_name) { nil }
     handlers = {}
     d.markers.each_key { |name| handlers[name] = ->(ctx, payload) { nil } }
-    Aver::Adapter.new(domain: d, protocol: p, handlers: handlers)
+    Aver::AdapterInstance.new(domain: d, protocol: p, handlers: handlers)
   end
 
   before(:each) { Aver.configuration.reset! }

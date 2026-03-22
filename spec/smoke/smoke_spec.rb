@@ -44,18 +44,18 @@ RSpec.describe "Smoke tests" do
   end
 
   describe "top-level API" do
-    it "Aver.domain returns Domain" do
+    it "Aver.domain returns DomainInstance" do
       d = Aver.domain("smoke-test")
-      expect(d).to be_a(Aver::Domain)
+      expect(d).to be_a(Aver::DomainInstance)
     end
 
-    it "Aver.implement returns Adapter" do
+    it "Aver.implement returns AdapterInstance" do
       d = Aver.domain("smoke-impl") { action :go }
       p = Aver.unit { nil }
       a = Aver.implement(d, protocol: p) do
         handle(:go) { |ctx, payload| nil }
       end
-      expect(a).to be_a(Aver::Adapter)
+      expect(a).to be_a(Aver::AdapterInstance)
     end
 
     it "Aver.unit returns UnitProtocol" do
@@ -101,6 +101,18 @@ RSpec.describe "Smoke tests" do
 
     it "Aver.eventually is callable" do
       expect(Aver).to respond_to(:eventually)
+    end
+
+    it "Aver::Domain is a class for OO inheritance" do
+      expect(Aver::Domain).to be_a(Class)
+    end
+
+    it "Aver::Adapter is a class for OO inheritance" do
+      expect(Aver::Adapter).to be_a(Class)
+    end
+
+    it "Aver::Adapt is an alias for Aver::Adapter" do
+      expect(Aver::Adapt).to equal(Aver::Adapter)
     end
   end
 end

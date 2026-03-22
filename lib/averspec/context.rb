@@ -19,7 +19,7 @@ module Aver
     end
 
     def get_coverage
-      markers = @domain.markers
+      markers = _get_markers
       total = markers.length
       called = @called_markers.length
       percentage = total == 0 ? 100 : (called.to_f / total * 100).round
@@ -37,12 +37,34 @@ module Aver
       end
 
       {
-        domain: @domain.name,
+        domain: _get_domain_name,
         percentage: percentage,
         actions: breakdown[:actions],
         queries: breakdown[:queries],
         assertions: breakdown[:assertions],
       }
+    end
+
+    private
+
+    def _get_markers
+      if @domain.is_a?(Class) && @domain.respond_to?(:markers)
+        @domain.markers
+      elsif @domain.respond_to?(:markers)
+        @domain.markers
+      else
+        {}
+      end
+    end
+
+    def _get_domain_name
+      if @domain.is_a?(Class) && @domain.respond_to?(:domain_name)
+        @domain.domain_name
+      elsif @domain.respond_to?(:name)
+        @domain.name
+      else
+        "unknown"
+      end
     end
   end
 end

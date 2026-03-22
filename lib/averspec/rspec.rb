@@ -21,23 +21,25 @@ module Aver
         end
 
         # Domain filtering via AVER_DOMAIN env var
+        domain_name = domain.respond_to?(:domain_name) ? domain.domain_name : domain.name
         domain_filter = ENV["AVER_DOMAIN"]
-        if domain_filter && domain.name != domain_filter
+        if domain_filter && domain_name != domain_filter
           it "#{name} [skipped: AVER_DOMAIN=#{domain_filter}]" do
-            skip "Domain '#{domain.name}' does not match AVER_DOMAIN='#{domain_filter}'"
+            skip "Domain '#{domain_name}' does not match AVER_DOMAIN='#{domain_filter}'"
           end
           return
         end
 
         adapters.each do |adapter|
-          it "#{name} [#{adapter.name}]" do
+          adapter_name = adapter.respond_to?(:name) ? adapter.name : "unknown"
+          it "#{name} [#{adapter_name}]" do
             protocol_ctx = adapter.protocol.setup
             ctx = Aver::Context.new(domain: domain, adapter: adapter, protocol_ctx: protocol_ctx, protocol: adapter.protocol)
 
             meta = Aver::TestMetadata.new(
               test_name: name,
-              domain_name: domain.name,
-              adapter_name: adapter.name
+              domain_name: domain_name,
+              adapter_name: adapter_name
             )
             adapter.protocol.on_test_start(protocol_ctx, meta)
 
@@ -46,8 +48,8 @@ module Aver
 
               completion = Aver::TestCompletion.new(
                 test_name: name,
-                domain_name: domain.name,
-                adapter_name: adapter.name,
+                domain_name: domain_name,
+                adapter_name: adapter_name,
                 status: "pass",
                 trace: ctx.trace
               )
@@ -55,8 +57,8 @@ module Aver
             rescue => e
               completion = Aver::TestCompletion.new(
                 test_name: name,
-                domain_name: domain.name,
-                adapter_name: adapter.name,
+                domain_name: domain_name,
+                adapter_name: adapter_name,
                 status: "fail",
                 error: e.message,
                 trace: ctx.trace
@@ -90,8 +92,50 @@ module Aver
       end
     end
   end
+
+  # RSpec integration for class-based domains: `RSpec.describe TaskBoard do`
+  module RSpecClassDomain
+    def self.included(base)
+      base.extend(Aver::RSpec::ClassMethods)
+
+      domain_class = base.metadata[:described_class]
+      return unless domain_class.is_a?(Class) && domain_class < Aver::Domain
+
+      adapter_classes = Aver.configuration.instance_variable_get(:@adapter_classes)
+        .select { |ac| ac.domain == domain_class }
+
+      adapter_classes.each do |adapter_class|
+        proto_name = adapter_class.protocol_name || "unknown"
+
+        base.context "[#{proto_name}]" do
+          let(:ctx) do
+            protocol_obj = if adapter_class.protocol_instance
+              adapter_class.protocol_instance
+            elsif adapter_class.protocol_factory
+              Aver::UnitProtocol.new(adapter_class.protocol_factory, name: adapter_class.protocol_name.to_s)
+            else
+              raise "No protocol configured for #{adapter_class}"
+            end
+
+            protocol_ctx = protocol_obj.setup
+            adapter_inst = adapter_class.new
+            Aver::Context.new(
+              domain: domain_class,
+              adapter: adapter_inst,
+              protocol_ctx: protocol_ctx,
+              protocol: protocol_obj
+            )
+          end
+        end
+      end
+    end
+  end
 end
 
 RSpec.configure do |config|
-  config.include Aver::RSpec, aver: ->(v) { v.is_a?(Aver::Domain) }
+  # Legacy: aver: DomainInstance
+  config.include Aver::RSpec, aver: ->(v) {
+    v.is_a?(Aver::DomainInstance) ||
+    (v.is_a?(Class) && v < Aver::Domain)
+  }
 end

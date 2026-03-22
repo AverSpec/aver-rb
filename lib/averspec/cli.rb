@@ -99,9 +99,11 @@ module Aver
       FileUtils.mkdir_p(domain_dir)
       domain_path = File.join(domain_dir, "#{snake_name}.rb")
       File.write(domain_path, <<~RUBY)
-        #{class_name} = Aver.domain("#{domain_label}") do
+        class #{class_name} < Aver::Domain
+          domain_name "#{domain_label}"
+
           action :create_#{snake_name}
-          query :get_#{snake_name}, returns: Hash
+          query :get_#{snake_name}
           assertion :#{snake_name}_exists
         end
       RUBY
@@ -113,18 +115,38 @@ module Aver
       adapter_path = File.join(adapter_dir, "#{snake_name}_#{protocol}.rb")
       if protocol == "unit"
         File.write(adapter_path, <<~RUBY)
-          #{class_name}Adapter = Aver.implement(#{class_name}, protocol: Aver.unit { Object.new }) do
-            handle(:create_#{snake_name}) { |ctx, p| }
-            handle(:get_#{snake_name}) { |ctx, p| {} }
-            handle(:#{snake_name}_exists) { |ctx, p| }
+          class #{class_name}Unit < Aver::Adapter
+            domain #{class_name}
+            protocol :unit, -> { Object.new }
+
+            def create_#{snake_name}(ctx, **kwargs)
+            end
+
+            def get_#{snake_name}(ctx)
+              {}
+            end
+
+            def #{snake_name}_exists(ctx)
+            end
           end
         RUBY
       else
         File.write(adapter_path, <<~RUBY)
-          #{class_name}HttpAdapter = Aver.implement(#{class_name}, protocol: Aver.http(base_url: "http://localhost:3000")) do
-            handle(:create_#{snake_name}) { |ctx, p| ctx.post("/#{snake_name}", p) }
-            handle(:get_#{snake_name}) { |ctx, p| ctx.get("/#{snake_name}") }
-            handle(:#{snake_name}_exists) { |ctx, p| ctx.get("/#{snake_name}") }
+          class #{class_name}Http < Aver::Adapter
+            domain #{class_name}
+            protocol Aver.http(base_url: "http://localhost:3000")
+
+            def create_#{snake_name}(ctx, **kwargs)
+              ctx.post("/#{snake_name}", kwargs)
+            end
+
+            def get_#{snake_name}(ctx)
+              ctx.get("/#{snake_name}")
+            end
+
+            def #{snake_name}_exists(ctx)
+              ctx.get("/#{snake_name}")
+            end
           end
         RUBY
       end
@@ -139,12 +161,9 @@ module Aver
         require_relative "../domains/#{snake_name}"
         require_relative "../adapters/#{snake_name}_#{protocol}"
 
-        RSpec.describe "#{domain_label}", aver: #{class_name} do
-          before(:all) do
-            Aver.configuration.reset!
-            Aver.configuration.adapters << #{class_name}Adapter
-          end
+        Aver.register #{class_name}Unit
 
+        RSpec.describe #{class_name}, aver: #{class_name} do
           aver_test "create a #{snake_name}" do |ctx|
             ctx.when.create_#{snake_name}
             ctx.then.#{snake_name}_exists

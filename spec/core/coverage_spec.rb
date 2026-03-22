@@ -14,7 +14,7 @@ RSpec.describe "Coverage tracking" do
     p = Aver.unit { {} }
     handlers = {}
     d.markers.each_key { |name| handlers[name] = ->(ctx, payload) { nil } }
-    a = Aver::Adapter.new(domain: d, protocol: p, handlers: handlers)
+    a = Aver::AdapterInstance.new(domain: d, protocol: p, handlers: handlers)
     proto_ctx = p.setup
     Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto_ctx)
   end
@@ -53,7 +53,7 @@ RSpec.describe "Coverage tracking" do
   it "empty domain is 100%" do
     d = Aver.domain("Empty")
     p = Aver.unit { {} }
-    a = Aver::Adapter.new(domain: d, protocol: p, handlers: {})
+    a = Aver::AdapterInstance.new(domain: d, protocol: p, handlers: {})
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: p.setup)
 
     cov = ctx.get_coverage

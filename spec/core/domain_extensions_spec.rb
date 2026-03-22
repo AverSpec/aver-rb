@@ -41,7 +41,7 @@ RSpec.describe "Domain extensions" do
       handle(:check_a) { |ctx, payload| nil }
       handle(:is_visible) { |ctx, payload| nil }
     end
-    expect(a).to be_a(Aver::Adapter)
+    expect(a).to be_a(Aver::AdapterInstance)
   end
 
   it "works in context" do
@@ -61,11 +61,11 @@ RSpec.describe "Domain extensions" do
     expect(ctx.trace.length).to eq(3)
   end
 
-  it "is itself a Domain" do
+  it "is itself a DomainInstance" do
     extended = parent.extend("IsDomain") do
       assertion :extra
     end
-    expect(extended).to be_a(Aver::Domain)
+    expect(extended).to be_a(Aver::DomainInstance)
   end
 
   it "does not modify the parent" do

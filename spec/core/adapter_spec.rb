@@ -1,6 +1,6 @@
 require "spec_helper"
 
-RSpec.describe Aver::Adapter do
+RSpec.describe Aver::AdapterInstance do
   let(:domain) do
     Aver.domain("tasks") do
       action :create_task
@@ -16,7 +16,7 @@ RSpec.describe Aver::Adapter do
         handle(:create_task) { |ctx, p| }
         handle(:task_exists) { |ctx, p| }
       end
-      expect(adapter).to be_a(Aver::Adapter)
+      expect(adapter).to be_a(Aver::AdapterInstance)
     end
 
     it "exposes the adapter name from the protocol" do
@@ -88,7 +88,7 @@ RSpec.describe Aver::Adapter do
         handle(:create_task) { |ctx, p| }
         handle(:task_exists) { |ctx, p| }
       end
-      expect(adapter).to be_a(Aver::Adapter)
+      expect(adapter).to be_a(Aver::AdapterInstance)
       expect(adapter.name).to eq("unit")
       expect(adapter.domain_name).to eq("tasks")
     end
