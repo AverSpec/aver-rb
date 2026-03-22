@@ -37,7 +37,11 @@ TaskBoardAdapter = Aver.implement(TaskBoard, protocol: Aver.unit { Board.new }) 
   handle(:create_task) { |board, p| board.create(p[:title], status: p.fetch(:status, "backlog")) }
   handle(:move_task) { |board, p| board.move(p[:title], p[:status]) }
   handle(:task_details) { |board, p| board.get(p) }
-  handle(:task_in_status) { |board, p| expect(board.get(p[:title])[:status]).to eq(p[:status]) }
+  handle(:task_in_status) { |board, p|
+    task = board.get(p[:title])
+    raise "Task '#{p[:title]}' not found" unless task
+    raise "Expected '#{p[:status]}', got '#{task[:status]}'" unless task[:status] == p[:status]
+  }
 end
 
 Aver.configuration.adapters << TaskBoardAdapter
