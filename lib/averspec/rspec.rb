@@ -11,6 +11,15 @@ module Aver
         domain = metadata[:aver]
         adapters = Aver.configuration.find_adapters(domain)
 
+        if adapters.empty?
+          registered_names = Aver.configuration.adapters.map { |a| a.domain.name }
+          if registered_names.any?
+            raise Aver::AdapterError, "No adapters registered for domain '#{domain.name}'. Registered adapters: #{registered_names.inspect}"
+          else
+            raise Aver::AdapterError, "No adapters registered for domain '#{domain.name}'. Did you add adapters in conftest?"
+          end
+        end
+
         # Domain filtering via AVER_DOMAIN env var
         domain_filter = ENV["AVER_DOMAIN"]
         if domain_filter && domain.name != domain_filter
