@@ -1,10 +1,8 @@
 require "averspec"
-require "averspec/protocol_http"
 require "json"
 require_relative "../domains/task_board"
 require_relative "../lib/app"
 
-# The HTTP adapter uses the TaskBoardApp as the server
 class TaskBoardHttpProtocol < Aver::Protocol
   def initialize
     super(name: "http")
@@ -22,25 +20,34 @@ class TaskBoardHttpProtocol < Aver::Protocol
   end
 end
 
-ExampleTaskBoardHttpAdapter = Aver.implement(ExampleTaskBoard, protocol: TaskBoardHttpProtocol.new) do
-  handle(:create_task) do |ctx, p|
-    response = ctx.post("/tasks", { title: p[:title], status: p.fetch(:status, "backlog") })
+class ExampleTaskBoardHttpAdapter < Aver::Adapter
+  domain ExampleTaskBoard
+  protocol :http, -> { nil }  # overridden by custom protocol below
+
+  class << self
+    def protocol_instance
+      @protocol_instance ||= TaskBoardHttpProtocol.new
+    end
+  end
+
+  def create_task(ctx, title:, status: "backlog")
+    response = ctx.post("/tasks", { title: title, status: status })
     JSON.parse(response.body)
   end
 
-  handle(:move_task) do |ctx, p|
-    response = ctx.put("/tasks", { title: p[:title], status: p[:status] })
+  def move_task(ctx, title:, status:)
+    response = ctx.put("/tasks", { title: title, status: status })
     JSON.parse(response.body)
   end
 
-  handle(:task_details) do |ctx, p|
-    response = ctx.get("/tasks?title=#{p}")
+  def task_details(ctx, title:)
+    response = ctx.get("/tasks?title=#{title}")
     JSON.parse(response.body, symbolize_names: true)
   end
 
-  handle(:task_in_status) do |ctx, p|
-    response = ctx.get("/tasks?title=#{p[:title]}")
+  def task_in_status(ctx, title:, status:)
+    response = ctx.get("/tasks?title=#{title}")
     data = JSON.parse(response.body, symbolize_names: true)
-    raise "Expected status '#{p[:status]}' but got '#{data[:status]}'" unless data[:status] == p[:status]
+    raise "Expected '#{status}', got '#{data[:status]}'" unless data[:status] == status
   end
 end

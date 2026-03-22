@@ -15,24 +15,36 @@ gem "averspec"
 
 ```ruby
 require "averspec"
+
+class TaskBoard < Aver::Domain
+  domain_name "task-board"
+
+  action :create_task
+  assertion :task_in_status
+end
+
+class TaskBoardUnit < Aver::Adapter
+  domain TaskBoard
+  protocol :unit, -> { {} }
+
+  def create_task(board, title:, status: "backlog")
+    board[title] = status
+  end
+
+  def task_in_status(board, title:, status:)
+    raise "expected #{status}" unless board[title] == status
+  end
+end
+
+Aver.register TaskBoardUnit
+```
+
+```ruby
+# spec/task_board_spec.rb
 require "averspec/rspec"
 
-TaskBoard = Aver.domain("task-board") do
-  action :create_task, payload: Hash
-  assertion :task_in_status, payload: Hash
-end
-
-adapter = Aver.implement(TaskBoard, protocol: Aver.unit { {} }) do
-  handle(:create_task) { |board, p| board[p[:title]] = p[:status] || "backlog" }
-  handle(:task_in_status) { |board, p|
-    raise "expected #{p[:status]}" unless board[p[:title]] == p[:status]
-  }
-end
-
-Aver.configure { |c| c.adapters = [adapter] }
-
-RSpec.describe "Task Board", aver: TaskBoard do
-  aver_test "create task in backlog" do |ctx|
+RSpec.describe TaskBoard do
+  it "creates a task in backlog" do
     ctx.when.create_task(title: "Fix bug")
     ctx.then.task_in_status(title: "Fix bug", status: "backlog")
   end
