@@ -1,6 +1,7 @@
 require "spec_helper"
 
-ContractVerificationDomain = Aver.domain("contract-verification") do
+class ContractVerificationDomain < Aver::Domain
+  domain_name "contract-verification"
   action :extract_static_contract
   action :extract_parameterized_contract
   action :verify_matching_traces
@@ -19,10 +20,15 @@ ContractVerificationDomain = Aver.domain("contract-verification") do
   assertion :round_trip_passes
 end
 
-ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protocol: Aver.unit { {} }) do
-  # Shared helpers stored as lambdas on the adapter
-  build_domain_with_telemetry = ->(name, markers_spec) do
-    Aver.domain(name) do
+class ContractVerificationAdapter < Aver::Adapter
+  domain ContractVerificationDomain
+  protocol :unit, -> { {} }
+
+  private
+
+  def _build_domain_with_telemetry(name, markers_spec)
+    Class.new(Aver::Domain) do
+      domain_name name
       markers_spec.each do |m|
         action m[:name], telemetry: Aver::TelemetryExpectation.new(
           span: m[:span],
@@ -32,7 +38,7 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     end
   end
 
-  stub_collector = ->(spans) do
+  def _stub_collector(spans)
     collected = spans.map do |s|
       Aver::CollectedSpan.new(
         trace_id: s.fetch(:trace_id, "t0"),
@@ -48,7 +54,7 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     collector
   end
 
-  build_protocol_with_collector = ->(collector) do
+  def _build_protocol_with_collector(collector)
     proto = Aver::Protocol.new(name: "cv-test")
     proto.define_singleton_method(:setup) { {} }
     proto.define_singleton_method(:teardown) { |ctx| nil }
@@ -56,7 +62,19 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     proto
   end
 
-  run_operations = ->(domain, adapter, protocol) do
+  def _build_adapter_for_domain(d, proto)
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+    end
+    d.markers.each_key do |marker_name|
+      klass.define_method(marker_name) { |ctx, **k| "done" }
+    end
+    klass.new
+  end
+
+  def _run_operations(domain, adapter, protocol)
     ctx = Aver::Context.new(domain: domain, adapter: adapter, protocol_ctx: protocol.setup, protocol: protocol)
     domain.markers.each_key do |marker_name|
       ctx.when.send(marker_name)
@@ -64,11 +82,11 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     ctx
   end
 
-  extract_results = ->(ctx, test_name: "cv-test") do
+  def _extract_results(ctx, test_name: "cv-test")
     [{ test_name: test_name, trace: ctx.trace }]
   end
 
-  make_production_traces = ->(spans_per_trace) do
+  def _make_production_traces(spans_per_trace)
     spans_per_trace.map.with_index do |spans, i|
       trace_id = spans.first&.fetch(:trace_id, "pt#{i}") || "pt#{i}"
       prod_spans = spans.map do |s|
@@ -83,57 +101,53 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     end
   end
 
-  handle(:extract_static_contract) do |state, p|
+  public
+
+  def extract_static_contract(state, **kw)
     ENV["AVER_TELEMETRY_MODE"] = "fail"
-    d = build_domain_with_telemetry.call("cv-static", [
+    d = _build_domain_with_telemetry("cv-static", [
       { name: :login, span: "auth.login", attributes: { "user.role" => "admin" } },
     ])
-    collector = stub_collector.call([
+    collector = _stub_collector([
       { name: "auth.login", attributes: { "user.role" => "admin" }, trace_id: "t1", span_id: "s1" },
     ])
-    proto = build_protocol_with_collector.call(collector)
-    a = Aver.implement(d, protocol: proto) do
-      handle(:login) { |ctx, p| "done" }
-    end
-    ctx = run_operations.call(d, a, proto)
-    state[:contract] = Aver.extract_contract(d, extract_results.call(ctx))
+    proto = _build_protocol_with_collector(collector)
+    a = _build_adapter_for_domain(d, proto)
+    ctx = _run_operations(d, a, proto)
+    state[:contract] = Aver.extract_contract(d, _extract_results(ctx))
   ensure
     ENV.delete("AVER_TELEMETRY_MODE")
   end
 
-  handle(:extract_parameterized_contract) do |state, p|
+  def extract_parameterized_contract(state, **kw)
     ENV["AVER_TELEMETRY_MODE"] = "fail"
-    d = build_domain_with_telemetry.call("cv-param", [
+    d = _build_domain_with_telemetry("cv-param", [
       { name: :signup, span: "user.signup", attributes: { "user.email" => "alice@test.com" } },
     ])
-    collector = stub_collector.call([
+    collector = _stub_collector([
       { name: "user.signup", attributes: { "user.email" => "alice@test.com" }, trace_id: "t1", span_id: "s1" },
     ])
-    proto = build_protocol_with_collector.call(collector)
-    a = Aver.implement(d, protocol: proto) do
-      handle(:signup) { |ctx, p| "done" }
-    end
-    ctx = run_operations.call(d, a, proto)
-    state[:contract] = Aver.extract_contract(d, extract_results.call(ctx))
+    proto = _build_protocol_with_collector(collector)
+    a = _build_adapter_for_domain(d, proto)
+    ctx = _run_operations(d, a, proto)
+    state[:contract] = Aver.extract_contract(d, _extract_results(ctx))
   ensure
     ENV.delete("AVER_TELEMETRY_MODE")
   end
 
-  handle(:verify_matching_traces) do |state, p|
+  def verify_matching_traces(state, **kw)
     ENV["AVER_TELEMETRY_MODE"] = "fail"
-    d = build_domain_with_telemetry.call("cv-match", [
+    d = _build_domain_with_telemetry("cv-match", [
       { name: :checkout, span: "order.checkout", attributes: { "amount" => "100" } },
     ])
-    collector = stub_collector.call([
+    collector = _stub_collector([
       { name: "order.checkout", attributes: { "amount" => "100" }, trace_id: "t1", span_id: "s1" },
     ])
-    proto = build_protocol_with_collector.call(collector)
-    a = Aver.implement(d, protocol: proto) do
-      handle(:checkout) { |ctx, p| "done" }
-    end
-    ctx = run_operations.call(d, a, proto)
-    contract = Aver.extract_contract(d, extract_results.call(ctx))
-    prod_traces = make_production_traces.call([
+    proto = _build_protocol_with_collector(collector)
+    a = _build_adapter_for_domain(d, proto)
+    ctx = _run_operations(d, a, proto)
+    contract = Aver.extract_contract(d, _extract_results(ctx))
+    prod_traces = _make_production_traces([
       [{ name: "order.checkout", attributes: { "amount" => "100" }, trace_id: "t1", span_id: "s1" }],
     ])
     state[:report] = Aver.verify_contract(contract, prod_traces)
@@ -142,24 +156,21 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     ENV.delete("AVER_TELEMETRY_MODE")
   end
 
-  handle(:verify_missing_span) do |state, p|
+  def verify_missing_span(state, **kw)
     ENV["AVER_TELEMETRY_MODE"] = "fail"
-    d = build_domain_with_telemetry.call("cv-missing", [
+    d = _build_domain_with_telemetry("cv-missing", [
       { name: :start, span: "checkout.start" },
       { name: :charge, span: "payment.charge" },
     ])
-    collector = stub_collector.call([
+    collector = _stub_collector([
       { name: "checkout.start", trace_id: "t1", span_id: "s1" },
       { name: "payment.charge", trace_id: "t1", span_id: "s2" },
     ])
-    proto = build_protocol_with_collector.call(collector)
-    a = Aver.implement(d, protocol: proto) do
-      handle(:start) { |ctx, p| "done" }
-      handle(:charge) { |ctx, p| "done" }
-    end
-    ctx = run_operations.call(d, a, proto)
-    contract = Aver.extract_contract(d, extract_results.call(ctx))
-    prod_traces = make_production_traces.call([
+    proto = _build_protocol_with_collector(collector)
+    a = _build_adapter_for_domain(d, proto)
+    ctx = _run_operations(d, a, proto)
+    contract = Aver.extract_contract(d, _extract_results(ctx))
+    prod_traces = _make_production_traces([
       [{ name: "checkout.start", trace_id: "t1", span_id: "s1" }],
     ])
     state[:report] = Aver.verify_contract(contract, prod_traces)
@@ -167,21 +178,19 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     ENV.delete("AVER_TELEMETRY_MODE")
   end
 
-  handle(:verify_literal_mismatch) do |state, p|
+  def verify_literal_mismatch(state, **kw)
     ENV["AVER_TELEMETRY_MODE"] = "fail"
-    d = build_domain_with_telemetry.call("cv-literal", [
+    d = _build_domain_with_telemetry("cv-literal", [
       { name: :cancel, span: "order.cancel", attributes: { "order.status" => "cancelled" } },
     ])
-    collector = stub_collector.call([
+    collector = _stub_collector([
       { name: "order.cancel", attributes: { "order.status" => "cancelled" }, trace_id: "t1", span_id: "s1" },
     ])
-    proto = build_protocol_with_collector.call(collector)
-    a = Aver.implement(d, protocol: proto) do
-      handle(:cancel) { |ctx, p| "done" }
-    end
-    ctx = run_operations.call(d, a, proto)
-    contract = Aver.extract_contract(d, extract_results.call(ctx))
-    prod_traces = make_production_traces.call([
+    proto = _build_protocol_with_collector(collector)
+    a = _build_adapter_for_domain(d, proto)
+    ctx = _run_operations(d, a, proto)
+    contract = Aver.extract_contract(d, _extract_results(ctx))
+    prod_traces = _make_production_traces([
       [{ name: "order.cancel", attributes: { "order.status" => "canceled" }, trace_id: "t1", span_id: "s1" }],
     ])
     state[:report] = Aver.verify_contract(contract, prod_traces)
@@ -189,30 +198,27 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     ENV.delete("AVER_TELEMETRY_MODE")
   end
 
-  handle(:verify_correlation_violation) do |state, p|
+  def verify_correlation_violation(state, **kw)
     ENV["AVER_TELEMETRY_MODE"] = "fail"
-    d = build_domain_with_telemetry.call("cv-corr", [
+    d = _build_domain_with_telemetry("cv-corr", [
       { name: :login, span: "auth.login", attributes: { "user.email" => "alice@co.com" } },
       { name: :session, span: "auth.session", attributes: { "user.email" => "alice@co.com" } },
     ])
-    collector = stub_collector.call([
+    collector = _stub_collector([
       { name: "auth.login", attributes: { "user.email" => "alice@co.com" }, trace_id: "t1", span_id: "s1" },
       { name: "auth.session", attributes: { "user.email" => "alice@co.com" }, trace_id: "t1", span_id: "s2" },
     ])
-    proto = build_protocol_with_collector.call(collector)
-    a = Aver.implement(d, protocol: proto) do
-      handle(:login) { |ctx, p| "done" }
-      handle(:session) { |ctx, p| "done" }
-    end
-    ctx = run_operations.call(d, a, proto)
-    contract = Aver.extract_contract(d, extract_results.call(ctx))
+    proto = _build_protocol_with_collector(collector)
+    a = _build_adapter_for_domain(d, proto)
+    ctx = _run_operations(d, a, proto)
+    contract = Aver.extract_contract(d, _extract_results(ctx))
     contract.entries[0].spans.each do |span_exp|
       span_exp.attributes.each do |key, binding|
         binding.kind = "correlated"
         binding.symbol = :email
       end
     end
-    prod_traces = make_production_traces.call([
+    prod_traces = _make_production_traces([
       [
         { name: "auth.login", attributes: { "user.email" => "alice@co.com" }, trace_id: "t1", span_id: "s1" },
         { name: "auth.session", attributes: { "user.email" => "bob@co.com" }, trace_id: "t1", span_id: "s2" },
@@ -223,21 +229,19 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     ENV.delete("AVER_TELEMETRY_MODE")
   end
 
-  handle(:verify_no_matching_traces) do |state, p|
+  def verify_no_matching_traces(state, **kw)
     ENV["AVER_TELEMETRY_MODE"] = "fail"
-    d = build_domain_with_telemetry.call("cv-no-match", [
+    d = _build_domain_with_telemetry("cv-no-match", [
       { name: :expected_op, span: "expected.span" },
     ])
-    collector = stub_collector.call([
+    collector = _stub_collector([
       { name: "expected.span", trace_id: "t1", span_id: "s1" },
     ])
-    proto = build_protocol_with_collector.call(collector)
-    a = Aver.implement(d, protocol: proto) do
-      handle(:expected_op) { |ctx, p| "done" }
-    end
-    ctx = run_operations.call(d, a, proto)
-    contract = Aver.extract_contract(d, extract_results.call(ctx))
-    prod_traces = make_production_traces.call([
+    proto = _build_protocol_with_collector(collector)
+    a = _build_adapter_for_domain(d, proto)
+    ctx = _run_operations(d, a, proto)
+    contract = Aver.extract_contract(d, _extract_results(ctx))
+    prod_traces = _make_production_traces([
       [{ name: "unrelated.span", trace_id: "t1", span_id: "s1" }],
     ])
     state[:report] = Aver.verify_contract(contract, prod_traces)
@@ -245,20 +249,18 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     ENV.delete("AVER_TELEMETRY_MODE")
   end
 
-  handle(:round_trip_contract) do |state, p|
+  def round_trip_contract(state, **kw)
     ENV["AVER_TELEMETRY_MODE"] = "fail"
-    d = build_domain_with_telemetry.call("cv-roundtrip", [
+    d = _build_domain_with_telemetry("cv-roundtrip", [
       { name: :op_one, span: "service.op_one", attributes: { "key" => "value" } },
     ])
-    collector = stub_collector.call([
+    collector = _stub_collector([
       { name: "service.op_one", attributes: { "key" => "value" }, trace_id: "t1", span_id: "s1" },
     ])
-    proto = build_protocol_with_collector.call(collector)
-    a = Aver.implement(d, protocol: proto) do
-      handle(:op_one) { |ctx, p| "done" }
-    end
-    ctx = run_operations.call(d, a, proto)
-    contract = Aver.extract_contract(d, extract_results.call(ctx))
+    proto = _build_protocol_with_collector(collector)
+    a = _build_adapter_for_domain(d, proto)
+    ctx = _run_operations(d, a, proto)
+    contract = Aver.extract_contract(d, _extract_results(ctx))
 
     hash = {
       domain: contract.domain,
@@ -285,7 +287,7 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     end
     rebuilt = Aver::BehavioralContract.new(domain: hash[:domain], entries: rebuilt_entries)
 
-    prod_traces = make_production_traces.call([
+    prod_traces = _make_production_traces([
       [{ name: "service.op_one", attributes: { "key" => "value" }, trace_id: "t1", span_id: "s1" }],
     ])
     state[:report] = Aver.verify_contract(rebuilt, prod_traces)
@@ -294,7 +296,7 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     ENV.delete("AVER_TELEMETRY_MODE")
   end
 
-  handle(:static_contract_correct) do |state, p|
+  def static_contract_correct(state, **kw)
     contract = state[:contract]
     raise "Expected domain 'cv-static', got '#{contract.domain}'" unless contract.domain == "cv-static"
     raise "Expected 1 entry, got #{contract.entries.length}" unless contract.entries.length == 1
@@ -302,7 +304,7 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     raise "Expected span 'auth.login', got '#{contract.entries[0].spans[0].name}'" unless contract.entries[0].spans[0].name == "auth.login"
   end
 
-  handle(:parameterized_contract_correct) do |state, p|
+  def parameterized_contract_correct(state, **kw)
     contract = state[:contract]
     raise "Expected 1 entry, got #{contract.entries.length}" unless contract.entries.length == 1
     span_exp = contract.entries[0].spans[0]
@@ -311,48 +313,48 @@ ContractVerificationAdapter = Aver.implement(ContractVerificationDomain, protoco
     raise "Expected value 'alice@test.com', got '#{span_exp.attributes["user.email"].value}'" unless span_exp.attributes["user.email"].value == "alice@test.com"
   end
 
-  handle(:matching_traces_pass) do |state, p|
+  def matching_traces_pass(state, **kw)
     report = state[:report]
     raise "Expected 0 violations, got #{report.total_violations}" unless report.total_violations == 0
     raise "Expected domain 'cv-match', got '#{report.domain}'" unless report.domain == state[:domain_name]
   end
 
-  handle(:missing_span_detected) do |state, p|
+  def missing_span_detected(state, **kw)
     report = state[:report]
     raise "Expected violations > 0, got #{report.total_violations}" unless report.total_violations > 0
     kinds = report.results.flat_map { |r| r.violations.map(&:kind) }
     raise "Expected 'missing-span' violation, got #{kinds.inspect}" unless kinds.include?("missing-span")
   end
 
-  handle(:literal_mismatch_detected) do |state, p|
+  def literal_mismatch_detected(state, **kw)
     report = state[:report]
     raise "Expected violations > 0, got #{report.total_violations}" unless report.total_violations > 0
     kinds = report.results.flat_map { |r| r.violations.map(&:kind) }
     raise "Expected 'literal-mismatch' violation, got #{kinds.inspect}" unless kinds.include?("literal-mismatch")
   end
 
-  handle(:correlation_violation_detected) do |state, p|
+  def correlation_violation_detected(state, **kw)
     report = state[:report]
     raise "Expected violations > 0, got #{report.total_violations}" unless report.total_violations > 0
     kinds = report.results.flat_map { |r| r.violations.map(&:kind) }
     raise "Expected 'correlation-violation', got #{kinds.inspect}" unless kinds.include?("correlation-violation")
   end
 
-  handle(:no_matching_traces_detected) do |state, p|
+  def no_matching_traces_detected(state, **kw)
     report = state[:report]
     raise "Expected violations > 0, got #{report.total_violations}" unless report.total_violations > 0
     kinds = report.results.flat_map { |r| r.violations.map(&:kind) }
     raise "Expected 'no-matching-traces', got #{kinds.inspect}" unless kinds.include?("no-matching-traces")
   end
 
-  handle(:round_trip_passes) do |state, p|
+  def round_trip_passes(state, **kw)
     report = state[:report]
     raise "Expected 0 violations, got #{report.total_violations}" unless report.total_violations == 0
     raise "Expected domain 'cv-roundtrip', got '#{report.domain}'" unless report.domain == state[:domain_name]
   end
 end
 
-Aver.configuration.adapters << ContractVerificationAdapter
+Aver.register(ContractVerificationAdapter)
 
 RSpec.describe "Contract verification acceptance", aver: ContractVerificationDomain do
 

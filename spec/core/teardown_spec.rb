@@ -2,17 +2,22 @@ require "spec_helper"
 
 RSpec.describe "Teardown error handling" do
   let(:teardown_domain) do
-    Aver.domain("Teardown") do
+    Class.new(Aver::Domain) do
+      domain_name "Teardown"
       action :do_thing
       assertion :check
     end
   end
 
   def make_adapter(d, proto)
-    Aver.implement(d, protocol: proto) do
-      handle(:do_thing) { |ctx, p| nil }
-      handle(:check) { |ctx, p| nil }
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:do_thing) { |ctx, **kw| nil }
+      define_method(:check) { |ctx| nil }
     end
+    klass.new
   end
 
   describe "teardown_failure_mode" do

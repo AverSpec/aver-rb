@@ -2,7 +2,8 @@ require "spec_helper"
 
 RSpec.describe "Aver.extract_contract" do
   let(:domain) do
-    Aver.domain("tasks") do
+    Class.new(Aver::Domain) do
+      domain_name "tasks"
       action :create_task
       assertion :task_exists
     end

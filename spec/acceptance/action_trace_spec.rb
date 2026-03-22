@@ -1,6 +1,7 @@
 require "spec_helper"
 
-ActionTraceDomain = Aver.domain("action-trace") do
+class ActionTraceDomain < Aver::Domain
+  domain_name "action-trace"
   action :run_full_trace_scenario
   action :run_failure_scenario
   action :run_categorized_scenario
@@ -11,19 +12,26 @@ ActionTraceDomain = Aver.domain("action-trace") do
   assertion :trace_is_empty
 end
 
-ActionTraceAdapter = Aver.implement(ActionTraceDomain, protocol: Aver.unit { {} }) do
-  handle(:run_full_trace_scenario) do |state, p|
-    d = Aver.domain("trace-full") do
+class ActionTraceAdapter < Aver::Adapter
+  domain ActionTraceDomain
+  protocol :unit, -> { {} }
+
+  def run_full_trace_scenario(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "trace-full"
       action :setup_data
       query :fetch_data, returns: Hash
       assertion :data_valid
     end
-    proto = Aver.unit { {} }
-    a = Aver.implement(d, protocol: proto) do
-      handle(:setup_data) { |ctx, payload| ctx[:data] = payload }
-      handle(:fetch_data) { |ctx, payload| ctx[:data] }
-      handle(:data_valid) { |ctx, payload| true }
-    end
+    dd = d
+    a = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:setup_data) { |ctx, **k| ctx[:data] = k }
+      define_method(:fetch_data) { |ctx| ctx[:data] }
+      define_method(:data_valid) { |ctx| true }
+    end.new
+    proto = Aver::UnitProtocol.new(-> { {} }, name: "unit")
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
     ctx.when.setup_data(seed: "abc")
     ctx.query.fetch_data
@@ -31,16 +39,20 @@ ActionTraceAdapter = Aver.implement(ActionTraceDomain, protocol: Aver.unit { {} 
     state[:trace] = ctx.trace
   end
 
-  handle(:run_failure_scenario) do |state, p|
-    d = Aver.domain("trace-fail") do
+  def run_failure_scenario(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "trace-fail"
       action :prepare
       assertion :check_result
     end
-    proto = Aver.unit { {} }
-    a = Aver.implement(d, protocol: proto) do
-      handle(:prepare) { |ctx, payload| nil }
-      handle(:check_result) { |ctx, payload| raise "check failed" }
-    end
+    dd = d
+    a = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:prepare) { |ctx, **k| nil }
+      define_method(:check_result) { |ctx| raise "check failed" }
+    end.new
+    proto = Aver::UnitProtocol.new(-> { {} }, name: "unit")
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
     ctx.when.prepare(data: "seed")
     begin
@@ -50,18 +62,22 @@ ActionTraceAdapter = Aver.implement(ActionTraceDomain, protocol: Aver.unit { {} 
     state[:trace] = ctx.trace
   end
 
-  handle(:run_categorized_scenario) do |state, p|
-    d = Aver.domain("trace-cat") do
+  def run_categorized_scenario(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "trace-cat"
       action :seed_state
       action :perform_action
       assertion :verify_outcome
     end
-    proto = Aver.unit { {} }
-    a = Aver.implement(d, protocol: proto) do
-      handle(:seed_state) { |ctx, payload| nil }
-      handle(:perform_action) { |ctx, payload| nil }
-      handle(:verify_outcome) { |ctx, payload| nil }
-    end
+    dd = d
+    a = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:seed_state) { |ctx, **k| nil }
+      define_method(:perform_action) { |ctx, **k| nil }
+      define_method(:verify_outcome) { |ctx| nil }
+    end.new
+    proto = Aver::UnitProtocol.new(-> { {} }, name: "unit")
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
     ctx.given.seed_state(data: "initial")
     ctx.when.perform_action(data: "go")
@@ -69,19 +85,23 @@ ActionTraceAdapter = Aver.implement(ActionTraceDomain, protocol: Aver.unit { {} 
     state[:trace] = ctx.trace
   end
 
-  handle(:run_empty_trace_scenario) do |state, p|
-    d = Aver.domain("trace-empty") do
+  def run_empty_trace_scenario(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "trace-empty"
       action :noop
     end
-    proto = Aver.unit { {} }
-    a = Aver.implement(d, protocol: proto) do
-      handle(:noop) { |ctx, payload| nil }
-    end
+    dd = d
+    a = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:noop) { |ctx, **k| nil }
+    end.new
+    proto = Aver::UnitProtocol.new(-> { {} }, name: "unit")
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
     state[:trace] = ctx.trace
   end
 
-  handle(:trace_has_correct_kinds_and_categories) do |state, p|
+  def trace_has_correct_kinds_and_categories(state, **kw)
     trace = state[:trace]
     raise "Expected 3 trace entries, got #{trace.length}" unless trace.length == 3
     raise "Expected entry 0 kind 'action', got '#{trace[0].kind}'" unless trace[0].kind == "action"
@@ -93,14 +113,14 @@ ActionTraceAdapter = Aver.implement(ActionTraceDomain, protocol: Aver.unit { {} 
     raise "Expected entry 2 category 'then', got '#{trace[2].category}'" unless trace[2].category == "then"
   end
 
-  handle(:trace_records_failure_status) do |state, p|
+  def trace_records_failure_status(state, **kw)
     trace = state[:trace]
     raise "Expected 2 trace entries, got #{trace.length}" unless trace.length == 2
     raise "Expected entry 0 status 'pass', got '#{trace[0].status}'" unless trace[0].status == "pass"
     raise "Expected entry 1 status 'fail', got '#{trace[1].status}'" unless trace[1].status == "fail"
   end
 
-  handle(:trace_has_given_when_then_categories) do |state, p|
+  def trace_has_given_when_then_categories(state, **kw)
     trace = state[:trace]
     raise "Expected 3 trace entries, got #{trace.length}" unless trace.length == 3
     raise "Expected entry 0 category 'given', got '#{trace[0].category}'" unless trace[0].category == "given"
@@ -108,13 +128,13 @@ ActionTraceAdapter = Aver.implement(ActionTraceDomain, protocol: Aver.unit { {} 
     raise "Expected entry 2 category 'then', got '#{trace[2].category}'" unless trace[2].category == "then"
   end
 
-  handle(:trace_is_empty) do |state, p|
+  def trace_is_empty(state, **kw)
     trace = state[:trace]
     raise "Expected empty trace, got #{trace.length} entries" unless trace.empty?
   end
 end
 
-Aver.configuration.adapters << ActionTraceAdapter
+Aver.register(ActionTraceAdapter)
 
 RSpec.describe "Action trace acceptance", aver: ActionTraceDomain do
 

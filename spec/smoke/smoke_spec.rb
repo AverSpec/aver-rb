@@ -44,18 +44,39 @@ RSpec.describe "Smoke tests" do
   end
 
   describe "top-level API" do
-    it "Aver.domain returns DomainInstance" do
-      d = Aver.domain("smoke-test")
-      expect(d).to be_a(Aver::DomainInstance)
+    it "Aver::Domain is a class for OO inheritance" do
+      expect(Aver::Domain).to be_a(Class)
     end
 
-    it "Aver.implement returns AdapterInstance" do
-      d = Aver.domain("smoke-impl") { action :go }
-      p = Aver.unit { nil }
-      a = Aver.implement(d, protocol: p) do
-        handle(:go) { |ctx, payload| nil }
+    it "creates domain via class inheritance" do
+      d = Class.new(Aver::Domain) do
+        domain_name "smoke-test"
+        action :go
       end
-      expect(a).to be_a(Aver::AdapterInstance)
+      expect(d.markers[:go].kind).to eq(:action)
+      expect(d.name).to eq("smoke-test")
+    end
+
+    it "Aver::Adapter is a class for OO inheritance" do
+      expect(Aver::Adapter).to be_a(Class)
+    end
+
+    it "Aver::Adapt is an alias for Aver::Adapter" do
+      expect(Aver::Adapt).to equal(Aver::Adapter)
+    end
+
+    it "creates adapter via class inheritance" do
+      d = Class.new(Aver::Domain) do
+        domain_name "smoke-adapter"
+        action :go
+      end
+      dd = d
+      a = Class.new(Aver::Adapter) do
+        domain dd
+        protocol :unit, -> { nil }
+        define_method(:go) { |ctx, **kw| nil }
+      end
+      expect { a.validate! }.not_to raise_error
     end
 
     it "Aver.unit returns UnitProtocol" do
@@ -64,7 +85,7 @@ RSpec.describe "Smoke tests" do
     end
 
     it "Aver.suite returns Suite" do
-      d = Aver.domain("smoke-suite")
+      d = Class.new(Aver::Domain) { domain_name "smoke-suite" }
       s = Aver.suite(d)
       expect(s).to be_a(Aver::Suite)
     end
@@ -74,7 +95,8 @@ RSpec.describe "Smoke tests" do
     end
 
     it "Marker instances have correct kinds" do
-      d = Aver.domain("marker-check") do
+      d = Class.new(Aver::Domain) do
+        domain_name "marker-check"
         action :a
         query :q, returns: Integer
         assertion :c
@@ -101,18 +123,6 @@ RSpec.describe "Smoke tests" do
 
     it "Aver.eventually is callable" do
       expect(Aver).to respond_to(:eventually)
-    end
-
-    it "Aver::Domain is a class for OO inheritance" do
-      expect(Aver::Domain).to be_a(Class)
-    end
-
-    it "Aver::Adapter is a class for OO inheritance" do
-      expect(Aver::Adapter).to be_a(Class)
-    end
-
-    it "Aver::Adapt is an alias for Aver::Adapter" do
-      expect(Aver::Adapt).to equal(Aver::Adapter)
     end
   end
 end

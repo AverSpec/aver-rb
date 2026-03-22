@@ -1,104 +1,125 @@
 require "spec_helper"
 
-RSpec.describe Aver::AdapterInstance do
+RSpec.describe Aver::Adapter do
   let(:domain) do
-    Aver.domain("tasks") do
+    Class.new(Aver::Domain) do
+      domain_name "tasks"
       action :create_task
       assertion :task_exists
     end
   end
 
-  let(:protocol) { Aver.unit { Object.new } }
-
   describe "building" do
     it "creates an adapter with all handlers" do
-      adapter = Aver.implement(domain, protocol: protocol) do
-        handle(:create_task) { |ctx, p| }
-        handle(:task_exists) { |ctx, p| }
+      d = domain
+      adapter_class = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:create_task) { |ctx, **kw| }
+        define_method(:task_exists) { |ctx, **kw| }
       end
-      expect(adapter).to be_a(Aver::AdapterInstance)
+      expect { adapter_class.validate! }.not_to raise_error
     end
 
     it "exposes the adapter name from the protocol" do
-      adapter = Aver.implement(domain, protocol: protocol) do
-        handle(:create_task) { |ctx, p| }
-        handle(:task_exists) { |ctx, p| }
+      d = domain
+      adapter_class = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:create_task) { |ctx, **kw| }
+        define_method(:task_exists) { |ctx, **kw| }
       end
-      expect(adapter.name).to eq("unit")
+      expect(adapter_class.protocol_name).to eq("unit")
     end
 
-    it "exposes the domain name" do
-      adapter = Aver.implement(domain, protocol: protocol) do
-        handle(:create_task) { |ctx, p| }
-        handle(:task_exists) { |ctx, p| }
+    it "exposes the domain class" do
+      d = domain
+      adapter_class = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:create_task) { |ctx, **kw| }
+        define_method(:task_exists) { |ctx, **kw| }
       end
-      expect(adapter.domain_name).to eq("tasks")
+      expect(adapter_class.domain).to eq(d)
     end
 
     it "raises on missing handlers" do
-      expect {
-        Aver.implement(domain, protocol: protocol) do
-          handle(:create_task) { |ctx, p| }
-        end
-      }.to raise_error(Aver::AdapterError, /Missing handlers.*task_exists/)
+      d = domain
+      adapter_class = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:create_task) { |ctx, **kw| }
+      end
+      expect { adapter_class.validate! }.to raise_error(Aver::AdapterError, /Missing handlers.*task_exists/)
     end
 
     it "raises on extra handlers" do
-      expect {
-        Aver.implement(domain, protocol: protocol) do
-          handle(:create_task) { |ctx, p| }
-          handle(:task_exists) { |ctx, p| }
-          handle(:bogus) { |ctx, p| }
-        end
-      }.to raise_error(Aver::AdapterError, /Extra handlers.*bogus/)
+      d = domain
+      adapter_class = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:create_task) { |ctx, **kw| }
+        define_method(:task_exists) { |ctx, **kw| }
+        define_method(:bogus) { |ctx, **kw| }
+      end
+      expect { adapter_class.validate! }.to raise_error(Aver::AdapterError, /Extra handlers.*bogus/)
     end
   end
 
   describe "execution" do
     it "calls the handler with ctx and payload" do
       called_with = nil
-      adapter = Aver.implement(domain, protocol: protocol) do
-        handle(:create_task) { |ctx, p| called_with = p }
-        handle(:task_exists) { |ctx, p| }
+      d = domain
+      adapter_class = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:create_task) { |ctx, **kw| called_with = kw }
+        define_method(:task_exists) { |ctx, **kw| }
       end
+      adapter = adapter_class.new
       adapter.execute(:create_task, :fake_ctx, { title: "test" })
       expect(called_with).to eq({ title: "test" })
     end
 
     it "returns the handler result" do
-      adapter = Aver.implement(domain, protocol: protocol) do
-        handle(:create_task) { |ctx, p| "created" }
-        handle(:task_exists) { |ctx, p| }
+      d = domain
+      adapter_class = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:create_task) { |ctx, **kw| "created" }
+        define_method(:task_exists) { |ctx, **kw| }
       end
+      adapter = adapter_class.new
       expect(adapter.execute(:create_task, :fake_ctx, nil)).to eq("created")
     end
 
     it "raises on unknown marker" do
-      adapter = Aver.implement(domain, protocol: protocol) do
-        handle(:create_task) { |ctx, p| }
-        handle(:task_exists) { |ctx, p| }
+      d = domain
+      adapter_class = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:create_task) { |ctx, **kw| }
+        define_method(:task_exists) { |ctx, **kw| }
       end
-      expect { adapter.execute(:nope, :ctx, nil) }.to raise_error(/No handler for nope/)
+      adapter = adapter_class.new
+      expect { adapter.execute(:nope, :ctx, nil) }.to raise_error(NoMethodError)
     end
   end
 
-  describe "Aver.adapt alias" do
-    it "works the same as Aver.implement" do
-      adapter = Aver.adapt(domain, protocol: protocol) do
-        handle(:create_task) { |ctx, p| }
-        handle(:task_exists) { |ctx, p| }
-      end
-      expect(adapter).to be_a(Aver::AdapterInstance)
-      expect(adapter.name).to eq("unit")
-      expect(adapter.domain_name).to eq("tasks")
+  describe "Aver::Adapt alias" do
+    it "is the same class as Aver::Adapter" do
+      expect(Aver::Adapt).to equal(Aver::Adapter)
     end
 
-    it "raises on missing handlers like implement" do
-      expect {
-        Aver.adapt(domain, protocol: protocol) do
-          handle(:create_task) { |ctx, p| }
-        end
-      }.to raise_error(Aver::AdapterError, /Missing handlers.*task_exists/)
+    it "works as a base class" do
+      d = domain
+      adapter_class = Class.new(Aver::Adapt) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:create_task) { |ctx, **kw| }
+        define_method(:task_exists) { |ctx, **kw| }
+      end
+      expect { adapter_class.validate! }.not_to raise_error
     end
   end
 end

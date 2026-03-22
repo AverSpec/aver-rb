@@ -3,19 +3,20 @@ require "spec_helper"
 RSpec.describe Aver::Domain do
   describe "creation" do
     it "stores the domain name" do
-      domain = Aver.domain("task-board")
+      domain = Class.new(Aver::Domain) { domain_name "task-board" }
       expect(domain.name).to eq("task-board")
     end
 
     it "creates an empty markers hash by default" do
-      domain = Aver.domain("empty")
+      domain = Class.new(Aver::Domain) { domain_name "empty" }
       expect(domain.markers).to eq({})
     end
   end
 
   describe "DSL" do
     let(:domain) do
-      Aver.domain("task-board") do
+      Class.new(Aver::Domain) do
+        domain_name "task-board"
         action :create_task, payload: { title: String }
         action :move_task, payload: { title: String, status: String }
         query :task_details, payload: String, returns: Hash
@@ -57,25 +58,26 @@ RSpec.describe Aver::Domain do
 
   describe "extension" do
     let(:parent) do
-      Aver.domain("base") do
+      Class.new(Aver::Domain) do
+        domain_name "base"
         action :login
       end
     end
 
     it "inherits parent markers" do
-      child = parent.extend("child") do
+      child = parent.extend_domain("child") do
         action :logout
       end
       expect(child.markers.keys).to contain_exactly(:login, :logout)
     end
 
     it "tracks parent reference" do
-      child = parent.extend("child")
+      child = parent.extend_domain("child")
       expect(child.parent).to eq(parent)
     end
 
     it "does not modify the parent" do
-      parent.extend("child") do
+      parent.extend_domain("child") do
         action :logout
       end
       expect(parent.markers.keys).to eq([:login])

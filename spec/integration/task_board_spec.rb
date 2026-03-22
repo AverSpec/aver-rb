@@ -25,7 +25,8 @@ class Board
 end
 
 # Domain
-TaskBoard = Aver.domain("task-board") do
+class TaskBoardDomain < Aver::Domain
+  domain_name "task-board"
   action :create_task, payload: { title: String, status: String }
   action :move_task, payload: { title: String, status: String }
   query :task_details, payload: String, returns: Hash
@@ -33,20 +34,32 @@ TaskBoard = Aver.domain("task-board") do
 end
 
 # Adapter
-TaskBoardAdapter = Aver.implement(TaskBoard, protocol: Aver.unit { Board.new }) do
-  handle(:create_task) { |board, p| board.create(p[:title], status: p.fetch(:status, "backlog")) }
-  handle(:move_task) { |board, p| board.move(p[:title], p[:status]) }
-  handle(:task_details) { |board, p| board.get(p) }
-  handle(:task_in_status) { |board, p|
-    task = board.get(p[:title])
-    raise "Task '#{p[:title]}' not found" unless task
-    raise "Expected '#{p[:status]}', got '#{task[:status]}'" unless task[:status] == p[:status]
-  }
+class TaskBoardUnitAdapter < Aver::Adapter
+  domain TaskBoardDomain
+  protocol :unit, -> { Board.new }
+
+  def create_task(board, title:, status: "backlog", **_)
+    board.create(title, status: status)
+  end
+
+  def move_task(board, title:, status:, **_)
+    board.move(title, status)
+  end
+
+  def task_details(board, title)
+    board.get(title)
+  end
+
+  def task_in_status(board, title:, status:, **_)
+    task = board.get(title)
+    raise "Task '#{title}' not found" unless task
+    raise "Expected '#{status}', got '#{task[:status]}'" unless task[:status] == status
+  end
 end
 
-Aver.configuration.adapters << TaskBoardAdapter
+Aver.register(TaskBoardUnitAdapter)
 
-RSpec.describe "Task Board", aver: TaskBoard do
+RSpec.describe "Task Board", aver: TaskBoardDomain do
 
   aver_test "create a task with default status" do |ctx|
     ctx.when.create_task(title: "Fix bug")

@@ -2,14 +2,16 @@ require "spec_helper"
 
 RSpec.describe "Domain filtering via AVER_DOMAIN" do
   let(:filter_a) do
-    Aver.domain("FilterA") do
+    Class.new(Aver::Domain) do
+      domain_name "FilterA"
       action :do_a
       assertion :check_a
     end
   end
 
   let(:filter_b) do
-    Aver.domain("FilterB") do
+    Class.new(Aver::Domain) do
+      domain_name "FilterB"
       action :do_b
       assertion :check_b
     end

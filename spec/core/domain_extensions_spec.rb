@@ -2,14 +2,15 @@ require "spec_helper"
 
 RSpec.describe "Domain extensions" do
   let(:parent) do
-    Aver.domain("Base") do
+    Class.new(Aver::Domain) do
+      domain_name "Base"
       action :do_a
       assertion :check_a
     end
   end
 
   it "inherits parent markers" do
-    child = parent.extend("Extended") do
+    child = parent.extend_domain("Extended") do
       assertion :check_b
     end
     expect(child.markers.keys).to contain_exactly(:do_a, :check_a, :check_b)
@@ -17,7 +18,7 @@ RSpec.describe "Domain extensions" do
   end
 
   it "tracks parent reference" do
-    child = parent.extend("Child") do
+    child = parent.extend_domain("Child") do
       action :do_b
     end
     expect(child.parent).to eq(parent)
@@ -25,61 +26,68 @@ RSpec.describe "Domain extensions" do
 
   it "duplicate marker raises" do
     expect {
-      parent.extend("Bad") do
+      parent.extend_domain("Bad") do
         action :do_a
       end
     }.to raise_error(Aver::DomainCollisionError, /collision/)
   end
 
   it "can be implemented" do
-    extended = parent.extend("ExtImpl") do
+    extended = parent.extend_domain("ExtImpl") do
       assertion :is_visible
     end
     p = Aver.unit { {} }
-    a = Aver.implement(extended, protocol: p) do
-      handle(:do_a) { |ctx, payload| nil }
-      handle(:check_a) { |ctx, payload| nil }
-      handle(:is_visible) { |ctx, payload| nil }
+    d = extended
+    a = Class.new(Aver::Adapter) do
+      domain d
+      protocol :unit, -> { {} }
+      define_method(:do_a) { |ctx, **kw| nil }
+      define_method(:check_a) { |ctx, **kw| nil }
+      define_method(:is_visible) { |ctx, **kw| nil }
     end
-    expect(a).to be_a(Aver::AdapterInstance)
+    expect { a.validate! }.not_to raise_error
   end
 
   it "works in context" do
-    extended = parent.extend("ExtCtx") do
+    extended = parent.extend_domain("ExtCtx") do
       assertion :is_visible
     end
-    p = Aver.unit { {} }
-    a = Aver.implement(extended, protocol: p) do
-      handle(:do_a) { |ctx, payload| nil }
-      handle(:check_a) { |ctx, payload| nil }
-      handle(:is_visible) { |ctx, payload| nil }
+    d = extended
+    adapter_class = Class.new(Aver::Adapter) do
+      domain d
+      protocol :unit, -> { {} }
+      define_method(:do_a) { |ctx, **kw| nil }
+      define_method(:check_a) { |ctx, **kw| nil }
+      define_method(:is_visible) { |ctx, **kw| nil }
     end
-    ctx = Aver::Context.new(domain: extended, adapter: a, protocol_ctx: p.setup)
+    proto = Aver::UnitProtocol.new(-> { {} }, name: "unit")
+    adapter = adapter_class.new
+    ctx = Aver::Context.new(domain: extended, adapter: adapter, protocol_ctx: proto.setup)
     ctx.when.do_a
     ctx.then.check_a
     ctx.then.is_visible
     expect(ctx.trace.length).to eq(3)
   end
 
-  it "is itself a DomainInstance" do
-    extended = parent.extend("IsDomain") do
+  it "is itself a class extending Aver::Domain" do
+    extended = parent.extend_domain("IsDomain") do
       assertion :extra
     end
-    expect(extended).to be_a(Aver::DomainInstance)
+    expect(extended < Aver::Domain).to be true
   end
 
   it "does not modify the parent" do
-    parent.extend("Isolated") do
+    parent.extend_domain("Isolated") do
       action :logout
     end
     expect(parent.markers.keys).to contain_exactly(:do_a, :check_a)
   end
 
   it "chained extension" do
-    level1 = parent.extend("Level1") do
+    level1 = parent.extend_domain("Level1") do
       query :get_x, returns: Integer
     end
-    level2 = level1.extend("Level2") do
+    level2 = level1.extend_domain("Level2") do
       assertion :check_x
     end
 

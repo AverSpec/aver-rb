@@ -1,26 +1,29 @@
 require "spec_helper"
 
-DomainFilterDomain = Aver.domain("domain-filter-test") do
+class DomainFilterDomain < Aver::Domain
+  domain_name "domain-filter-test"
   action :setup_domain_filter_test
   assertion :filter_skips_non_matching
   assertion :filter_runs_matching
 end
 
-DomainFilterAdapter = Aver.implement(DomainFilterDomain, protocol: Aver.unit { {} }) do
-  handle(:setup_domain_filter_test) do |state, p|
-    state[:d] = Aver.domain("FilterTarget") { action :ping }
-    proto = Aver.unit { {} }
-    state[:adapter] = Aver.implement(state[:d], protocol: proto) do
-      handle(:ping) { |ctx, payload| nil }
+class DomainFilterAdapter < Aver::Adapter
+  domain DomainFilterDomain
+  protocol :unit, -> { {} }
+
+  def setup_domain_filter_test(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "FilterTarget"
+      action :ping
     end
+    state[:d] = d
   end
 
-  handle(:filter_skips_non_matching) do |state, p|
+  def filter_skips_non_matching(state, **kw)
     old = ENV["AVER_DOMAIN"]
     begin
       ENV["AVER_DOMAIN"] = "SomeOtherDomain"
       d = state[:d]
-      # Re-read the env var as the framework would
       filter = ENV["AVER_DOMAIN"]
       unless filter && filter != d.name
         raise "Expected filter to not match domain name '#{d.name}'"
@@ -34,7 +37,7 @@ DomainFilterAdapter = Aver.implement(DomainFilterDomain, protocol: Aver.unit { {
     end
   end
 
-  handle(:filter_runs_matching) do |state, p|
+  def filter_runs_matching(state, **kw)
     old = ENV["AVER_DOMAIN"]
     begin
       d = state[:d]
@@ -53,7 +56,7 @@ DomainFilterAdapter = Aver.implement(DomainFilterDomain, protocol: Aver.unit { {
   end
 end
 
-Aver.configuration.adapters << DomainFilterAdapter
+Aver.register(DomainFilterAdapter)
 
 RSpec.describe "Domain filter acceptance", aver: DomainFilterDomain do
 

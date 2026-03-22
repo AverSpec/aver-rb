@@ -2,7 +2,8 @@ require "spec_helper"
 
 RSpec.describe "Domain extension edge cases" do
   let(:base) do
-    Aver.domain("EdgeBase") do
+    Class.new(Aver::Domain) do
+      domain_name "EdgeBase"
       action :do_a
       query :get_x, returns: Integer
       assertion :check_a
@@ -11,7 +12,7 @@ RSpec.describe "Domain extension edge cases" do
 
   it "duplicate query in extension raises" do
     expect {
-      base.extend("BadQuery") do
+      base.extend_domain("BadQuery") do
         query :get_x, returns: String
       end
     }.to raise_error(Aver::DomainCollisionError, /collision/)
@@ -19,14 +20,14 @@ RSpec.describe "Domain extension edge cases" do
 
   it "duplicate assertion in extension raises" do
     expect {
-      base.extend("BadAssertion") do
+      base.extend_domain("BadAssertion") do
         assertion :check_a
       end
     }.to raise_error(Aver::DomainCollisionError, /collision/)
   end
 
   it "cross-section different names ok" do
-    extended = base.extend("CrossSection") do
+    extended = base.extend_domain("CrossSection") do
       action :do_b
       query :get_y, returns: Integer
       assertion :check_b

@@ -2,7 +2,8 @@ require "spec_helper"
 
 RSpec.describe "Lifecycle hooks" do
   let(:lifecycle_domain) do
-    Aver.domain("Lifecycle") do
+    Class.new(Aver::Domain) do
+      domain_name "Lifecycle"
       action :do_thing
       assertion :check
     end
@@ -44,10 +45,14 @@ RSpec.describe "Lifecycle hooks" do
   end
 
   def make_adapter(proto)
-    Aver.implement(lifecycle_domain, protocol: proto) do
-      handle(:do_thing) { |ctx, p| ctx[:log] << "do_thing" }
-      handle(:check) { |ctx, p| ctx[:log] << "check" }
+    d = lifecycle_domain
+    klass = Class.new(Aver::Adapter) do
+      domain d
+      protocol :unit, -> { { log: [] } }
+      define_method(:do_thing) { |ctx, **kw| ctx[:log] << "do_thing" }
+      define_method(:check) { |ctx| ctx[:log] << "check" }
     end
+    klass.new
   end
 
   it "on_test_start called with metadata" do

@@ -15,17 +15,31 @@ RSpec.describe "Composed suite edge cases" do
   end
 
   def build_adapter(d, proto)
-    handlers = {}
-    d.markers.each_key { |name| handlers[name] = ->(ctx, payload) { nil } }
-    Aver::AdapterInstance.new(domain: d, protocol: proto, handlers: handlers)
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+    end
+    d.markers.each_key do |name|
+      klass.define_method(name) { |ctx, **kw| nil }
+    end
+    inst = klass.new
+    inst.define_singleton_method(:protocol) { proto }
+    inst
   end
 
   it "partial setup failure tears down already-setup domains" do
     setup_log = []
     teardown_log = []
 
-    d1 = Aver.domain("Alpha") { action :a1 }
-    d2 = Aver.domain("Beta") { action :a2 }
+    d1 = Class.new(Aver::Domain) do
+      domain_name "Alpha"
+      action :a1
+    end
+    d2 = Class.new(Aver::Domain) do
+      domain_name "Beta"
+      action :a2
+    end
 
     proto_a = tracking_proto("alpha", setup_log, teardown_log)
     proto_b = tracking_proto("beta", setup_log, teardown_log, fail_setup: true)
@@ -48,8 +62,14 @@ RSpec.describe "Composed suite edge cases" do
     setup_log = []
     teardown_log = []
 
-    d1 = Aver.domain("Alpha") { action :do_thing }
-    d2 = Aver.domain("Beta") { action :do_other }
+    d1 = Class.new(Aver::Domain) do
+      domain_name "Alpha"
+      action :do_thing
+    end
+    d2 = Class.new(Aver::Domain) do
+      domain_name "Beta"
+      action :do_other
+    end
 
     proto_a = tracking_proto("alpha", setup_log, teardown_log)
     proto_b = tracking_proto("beta", setup_log, teardown_log)
@@ -73,8 +93,14 @@ RSpec.describe "Composed suite edge cases" do
     setup_log = []
     teardown_log = []
 
-    d1 = Aver.domain("First") { action :a1 }
-    d2 = Aver.domain("Second") { action :a2 }
+    d1 = Class.new(Aver::Domain) do
+      domain_name "First"
+      action :a1
+    end
+    d2 = Class.new(Aver::Domain) do
+      domain_name "Second"
+      action :a2
+    end
 
     proto_a = tracking_proto("first", setup_log, teardown_log)
     proto_b = tracking_proto("second", setup_log, teardown_log)

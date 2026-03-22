@@ -1,20 +1,30 @@
 require "spec_helper"
 
-ErrorScenariosDomain = Aver.domain("error-scenarios") do
+class ErrorScenariosDomain < Aver::Domain
+  domain_name "error-scenarios"
   assertion :missing_marker_raises_no_method_error
   assertion :wrong_proxy_kind_raises_type_error
   assertion :incomplete_adapter_raises_adapter_error
   assertion :extra_handlers_raise_adapter_error
 end
 
-ErrorScenariosAdapter = Aver.implement(ErrorScenariosDomain, protocol: Aver.unit { {} }) do
-  handle(:missing_marker_raises_no_method_error) do |state, p|
-    d = Aver.domain("err-missing") { action :real_action }
-    proto = Aver.unit { {} }
-    a = Aver.implement(d, protocol: proto) do
-      handle(:real_action) { |ctx, payload| nil }
+class ErrorScenariosAdapter < Aver::Adapter
+  domain ErrorScenariosDomain
+  protocol :unit, -> { {} }
+
+  def missing_marker_raises_no_method_error(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "err-missing"
+      action :real_action
     end
-    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
+    dd = d
+    adapter_class = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:real_action) { |ctx, **k| nil }
+    end
+    proto = Aver::UnitProtocol.new(-> { {} }, name: "unit")
+    ctx = Aver::Context.new(domain: d, adapter: adapter_class.new, protocol_ctx: proto.setup)
     begin
       ctx.when.nonexistent_marker
       raise "Expected NoMethodError but none raised"
@@ -23,17 +33,21 @@ ErrorScenariosAdapter = Aver.implement(ErrorScenariosDomain, protocol: Aver.unit
     end
   end
 
-  handle(:wrong_proxy_kind_raises_type_error) do |state, p|
-    d = Aver.domain("err-proxy") do
+  def wrong_proxy_kind_raises_type_error(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "err-proxy"
       action :do_thing
       assertion :verify_thing
     end
-    proto = Aver.unit { {} }
-    a = Aver.implement(d, protocol: proto) do
-      handle(:do_thing) { |ctx, payload| nil }
-      handle(:verify_thing) { |ctx, payload| nil }
+    dd = d
+    adapter_class = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:do_thing) { |ctx, **k| nil }
+      define_method(:verify_thing) { |ctx, **k| nil }
     end
-    ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
+    proto = Aver::UnitProtocol.new(-> { {} }, name: "unit")
+    ctx = Aver::Context.new(domain: d, adapter: adapter_class.new, protocol_ctx: proto.setup)
 
     begin
       ctx.when.verify_thing
@@ -57,33 +71,43 @@ ErrorScenariosAdapter = Aver.implement(ErrorScenariosDomain, protocol: Aver.unit
     end
   end
 
-  handle(:incomplete_adapter_raises_adapter_error) do |state, p|
-    d = Aver.domain("err-incomplete") do
+  def incomplete_adapter_raises_adapter_error(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "err-incomplete"
       action :handle_this
       action :handle_that
       query :fetch_status, returns: String
       assertion :status_is_ok
     end
-    proto = Aver.unit { {} }
+    dd = d
     begin
-      Aver.implement(d, protocol: proto) do
-        handle(:handle_this) { |ctx, payload| nil }
-        handle(:status_is_ok) { |ctx, payload| nil }
+      incomplete = Class.new(Aver::Adapter) do
+        domain dd
+        protocol :unit, -> { {} }
+        define_method(:handle_this) { |ctx, **k| nil }
+        define_method(:status_is_ok) { |ctx, **k| nil }
       end
+      incomplete.validate!
       raise "Expected AdapterError but none raised"
     rescue Aver::AdapterError => e
       raise "Expected /Missing handlers/, got: #{e.message}" unless e.message.match?(/Missing handlers/)
     end
   end
 
-  handle(:extra_handlers_raise_adapter_error) do |state, p|
-    d = Aver.domain("err-extra") { action :go }
-    proto = Aver.unit { {} }
+  def extra_handlers_raise_adapter_error(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "err-extra"
+      action :go
+    end
+    dd = d
     begin
-      Aver.implement(d, protocol: proto) do
-        handle(:go) { |ctx, payload| nil }
-        handle(:bogus) { |ctx, payload| nil }
+      extra = Class.new(Aver::Adapter) do
+        domain dd
+        protocol :unit, -> { {} }
+        define_method(:go) { |ctx, **k| nil }
+        define_method(:bogus) { |ctx, **k| nil }
       end
+      extra.validate!
       raise "Expected AdapterError but none raised"
     rescue Aver::AdapterError => e
       raise "Expected /Extra handlers.*bogus/, got: #{e.message}" unless e.message.match?(/Extra handlers.*bogus/)
@@ -91,7 +115,7 @@ ErrorScenariosAdapter = Aver.implement(ErrorScenariosDomain, protocol: Aver.unit
   end
 end
 
-Aver.configuration.adapters << ErrorScenariosAdapter
+Aver.register(ErrorScenariosAdapter)
 
 RSpec.describe "Error scenarios acceptance", aver: ErrorScenariosDomain do
 

@@ -2,7 +2,8 @@ require "spec_helper"
 
 RSpec.describe "Coverage tracking" do
   let(:domain) do
-    Aver.domain("Cart") do
+    Class.new(Aver::Domain) do
+      domain_name "Cart"
       action :add_item
       action :remove_item
       query :total, returns: Integer
@@ -12,9 +13,15 @@ RSpec.describe "Coverage tracking" do
 
   def make_ctx(d)
     p = Aver.unit { {} }
-    handlers = {}
-    d.markers.each_key { |name| handlers[name] = ->(ctx, payload) { nil } }
-    a = Aver::AdapterInstance.new(domain: d, protocol: p, handlers: handlers)
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+    end
+    d.markers.each_key do |name|
+      klass.define_method(name) { |ctx, **kw| nil }
+    end
+    a = klass.new
     proto_ctx = p.setup
     Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto_ctx)
   end
@@ -51,9 +58,14 @@ RSpec.describe "Coverage tracking" do
   end
 
   it "empty domain is 100%" do
-    d = Aver.domain("Empty")
+    d = Class.new(Aver::Domain) { domain_name "Empty" }
     p = Aver.unit { {} }
-    a = Aver::AdapterInstance.new(domain: d, protocol: p, handlers: {})
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+    end
+    a = klass.new
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: p.setup)
 
     cov = ctx.get_coverage

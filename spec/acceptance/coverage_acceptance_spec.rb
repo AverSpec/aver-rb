@@ -1,6 +1,7 @@
 require "spec_helper"
 
-CoverageDomain = Aver.domain("coverage-test") do
+class CoverageDomain < Aver::Domain
+  domain_name "coverage-test"
   action :run_full_coverage_scenario
   action :run_dedup_scenario
   action :run_breakdown_scenario
@@ -9,21 +10,28 @@ CoverageDomain = Aver.domain("coverage-test") do
   assertion :breakdown_coverage_correct
 end
 
-CoverageAdapter = Aver.implement(CoverageDomain, protocol: Aver.unit { {} }) do
-  handle(:run_full_coverage_scenario) do |state, p|
-    d = Aver.domain("CoverageTest") do
+class CoverageAcceptAdapter < Aver::Adapter
+  domain CoverageDomain
+  protocol :unit, -> { {} }
+
+  def run_full_coverage_scenario(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "CoverageTest"
       action :create_item
       action :delete_item
       query :get_items, returns: Array
       assertion :item_exists
     end
-    proto = Aver.unit { { items: [] } }
-    a = Aver.implement(d, protocol: proto) do
-      handle(:create_item) { |ctx, payload| ctx[:items] << payload[:name] }
-      handle(:delete_item) { |ctx, payload| ctx[:items].delete(payload[:name]) }
-      handle(:get_items) { |ctx, payload| ctx[:items] }
-      handle(:item_exists) { |ctx, payload| raise "not found" unless ctx[:items].include?(payload[:name]) }
-    end
+    dd = d
+    a = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { { items: [] } }
+      define_method(:create_item) { |ctx, **k| ctx[:items] << k[:name] }
+      define_method(:delete_item) { |ctx, **k| ctx[:items].delete(k[:name]) }
+      define_method(:get_items) { |ctx| ctx[:items] }
+      define_method(:item_exists) { |ctx, **k| raise "not found" unless ctx[:items].include?(k[:name]) }
+    end.new
+    proto = Aver::UnitProtocol.new(-> { { items: [] } }, name: "unit")
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
     ctx.when.create_item(name: "Widget")
     items = ctx.query.get_items
@@ -32,18 +40,22 @@ CoverageAdapter = Aver.implement(CoverageDomain, protocol: Aver.unit { {} }) do
     state[:coverage] = ctx.get_coverage
   end
 
-  handle(:run_dedup_scenario) do |state, p|
-    d = Aver.domain("CoverageDedup") do
+  def run_dedup_scenario(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "CoverageDedup"
       action :submit
       query :total, returns: Integer
       assertion :valid
     end
-    proto = Aver.unit { { items: [] } }
-    a = Aver.implement(d, protocol: proto) do
-      handle(:submit) { |ctx, payload| ctx[:items] << payload }
-      handle(:total) { |ctx, payload| ctx[:items].length }
-      handle(:valid) { |ctx, payload| true }
-    end
+    dd = d
+    a = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { { items: [] } }
+      define_method(:submit) { |ctx, **k| ctx[:items] << k }
+      define_method(:total) { |ctx| ctx[:items].length }
+      define_method(:valid) { |ctx| true }
+    end.new
+    proto = Aver::UnitProtocol.new(-> { { items: [] } }, name: "unit")
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
     ctx.when.submit(name: "first")
     ctx.when.submit(name: "second")
@@ -51,26 +63,30 @@ CoverageAdapter = Aver.implement(CoverageDomain, protocol: Aver.unit { {} }) do
     state[:coverage] = ctx.get_coverage
   end
 
-  handle(:run_breakdown_scenario) do |state, p|
-    d = Aver.domain("CoverageBreakdown") do
+  def run_breakdown_scenario(state, **kw)
+    d = Class.new(Aver::Domain) do
+      domain_name "CoverageBreakdown"
       action :a1
       action :a2
       query :q1, returns: Integer
       assertion :c1
     end
-    proto = Aver.unit { {} }
-    a = Aver.implement(d, protocol: proto) do
-      handle(:a1) { |ctx, payload| nil }
-      handle(:a2) { |ctx, payload| nil }
-      handle(:q1) { |ctx, payload| 0 }
-      handle(:c1) { |ctx, payload| true }
-    end
+    dd = d
+    a = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:a1) { |ctx, **k| nil }
+      define_method(:a2) { |ctx, **k| nil }
+      define_method(:q1) { |ctx| 0 }
+      define_method(:c1) { |ctx| true }
+    end.new
+    proto = Aver::UnitProtocol.new(-> { {} }, name: "unit")
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup)
     ctx.when.a1
     state[:coverage] = ctx.get_coverage
   end
 
-  handle(:full_coverage_correct) do |state, p|
+  def full_coverage_correct(state, **kw)
     items = state[:items]
     raise "Expected items [\"Widget\"], got #{items.inspect}" unless items == ["Widget"]
     cov = state[:coverage]
@@ -81,12 +97,12 @@ CoverageAdapter = Aver.implement(CoverageDomain, protocol: Aver.unit { {} }) do
     raise "Expected total actions [\"create_item\", \"delete_item\"], got #{total_actions.inspect}" unless total_actions == ["create_item", "delete_item"]
   end
 
-  handle(:dedup_coverage_correct) do |state, p|
+  def dedup_coverage_correct(state, **kw)
     cov = state[:coverage]
     raise "Expected 67% coverage, got #{cov[:percentage]}%" unless cov[:percentage] == 67
   end
 
-  handle(:breakdown_coverage_correct) do |state, p|
+  def breakdown_coverage_correct(state, **kw)
     cov = state[:coverage]
     raise "Expected 1 called action, got #{cov[:actions][:called].length}" unless cov[:actions][:called].length == 1
     raise "Expected 2 total actions, got #{cov[:actions][:total].length}" unless cov[:actions][:total].length == 2
@@ -97,7 +113,7 @@ CoverageAdapter = Aver.implement(CoverageDomain, protocol: Aver.unit { {} }) do
   end
 end
 
-Aver.configuration.adapters << CoverageAdapter
+Aver.register(CoverageAcceptAdapter)
 
 RSpec.describe "Coverage acceptance", aver: CoverageDomain do
 

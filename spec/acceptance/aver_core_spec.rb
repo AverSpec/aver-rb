@@ -1,7 +1,7 @@
 require "spec_helper"
 
-# Domain that tests the Aver framework itself
-AverCore = Aver.domain("aver-core") do
+class AverCoreDomain < Aver::Domain
+  domain_name "aver-core"
   action :create_domain
   action :create_adapter
   action :register_adapter
@@ -27,80 +27,91 @@ AverCore = Aver.domain("aver-core") do
   assertion :coverage_above_zero
 end
 
-AverCoreAdapter = Aver.implement(AverCore, protocol: Aver.unit { {} }) do
-  handle(:create_domain) do |state, p|
-    state[:domain] = Aver.domain(p[:name]) do
+class AverCoreAdapter < Aver::Adapter
+  domain AverCoreDomain
+  protocol :unit, -> { {} }
+
+  def create_domain(state, **p)
+    state[:domain] = Class.new(Aver::Domain) do
+      domain_name p[:name]
       action :go
       query :peek, returns: Hash
       assertion :check
     end
   end
 
-  handle(:create_adapter) do |state, p|
+  def create_adapter(state, **p)
     d = state[:domain]
-    state[:adapter] = Aver.implement(d, protocol: Aver.unit { [] }) do
-      handle(:go) { |ctx, payload| ctx << (payload || "done") }
-      handle(:peek) { |ctx, payload| { items: ctx.length } }
-      handle(:check) { |ctx, payload| raise "context is empty" if ctx.empty? }
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { [] }
+      define_method(:go) { |ctx, **kw| ctx << (kw.empty? ? "done" : kw) }
+      define_method(:peek) { |ctx| { items: ctx.length } }
+      define_method(:check) { |ctx| raise "context is empty" if ctx.empty? }
     end
+    state[:adapter] = klass.new
+    state[:adapter_proto] = Aver::UnitProtocol.new(-> { [] }, name: "unit")
   end
 
-  handle(:register_adapter) do |state, p|
-    Aver.configuration.adapters << state[:adapter]
+  def register_adapter(state, **p)
+    # No-op in the OO world since we don't use config for inline adapters
   end
 
-  handle(:dispatch_action) do |state, p|
+  def dispatch_action(state, **p)
     d = state[:domain]
     a = state[:adapter]
-    proto_ctx = a.protocol.setup
+    proto = state[:adapter_proto]
+    proto_ctx = proto.setup
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto_ctx)
     ctx.when.go(title: "test")
     state[:ctx] = ctx
     state[:proto_ctx] = proto_ctx
   end
 
-  handle(:dispatch_query) do |state, p|
+  def dispatch_query(state, **p)
     ctx = state[:ctx]
     result = ctx.query.peek
     state[:query_result] = result
   end
 
-  handle(:dispatch_assertion) do |state, p|
+  def dispatch_assertion(state, **p)
     ctx = state[:ctx]
     ctx.then.check
   end
 
-  handle(:dispatch_via_given) do |state, p|
+  def dispatch_via_given(state, **p)
     d = state[:domain]
     a = state[:adapter]
-    proto_ctx = a.protocol.setup
+    proto = state[:adapter_proto]
+    proto_ctx = proto.setup
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto_ctx)
     ctx.given.go
     ctx.given.check
     state[:given_ctx] = ctx
   end
 
-  handle(:get_trace) do |state, p|
+  def get_trace(state, **p)
     ctx = state[:ctx] || state[:given_ctx]
     ctx.trace
   end
 
-  handle(:get_trace_length) do |state, p|
+  def get_trace_length(state, **p)
     ctx = state[:ctx] || state[:given_ctx]
     ctx.trace.length
   end
 
-  handle(:get_coverage) do |state, p|
+  def get_coverage(state, **p)
     ctx = state[:ctx]
     ctx.get_coverage
   end
 
-  handle(:get_coverage_percentage) do |state, p|
+  def get_coverage_percentage(state, **p)
     ctx = state[:ctx]
     ctx.get_coverage[:percentage]
   end
 
-  handle(:domain_has_markers) do |state, p|
+  def domain_has_markers(state, **p)
     d = state[:domain]
     keys = d.markers.keys
     unless keys.sort == [:check, :go, :peek]
@@ -108,10 +119,11 @@ AverCoreAdapter = Aver.implement(AverCore, protocol: Aver.unit { {} }) do
     end
   end
 
-  handle(:proxy_blocks_wrong_kind) do |state, p|
+  def proxy_blocks_wrong_kind(state, **p)
     d = state[:domain]
     a = state[:adapter]
-    proto_ctx = a.protocol.setup
+    proto = state[:adapter_proto]
+    proto_ctx = proto.setup
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto_ctx)
     begin
       ctx.then.go
@@ -127,38 +139,52 @@ AverCoreAdapter = Aver.implement(AverCore, protocol: Aver.unit { {} }) do
     end
   end
 
-  handle(:adapter_rejects_missing_handlers) do |state, p|
+  def adapter_rejects_missing_handlers(state, **p)
     d = state[:domain]
+    dd = d
     begin
-      Aver.implement(d, protocol: Aver.unit { nil }) do
-        handle(:go) { |ctx, p| }
+      klass = Class.new(Aver::Adapter) do
+        domain dd
+        protocol :unit, -> { nil }
+        define_method(:go) { |ctx, **k| }
       end
+      klass.validate!
       raise "Expected AdapterError for missing handlers but none raised"
     rescue Aver::AdapterError => e
       raise "Expected /Missing/ in error, got: #{e.message}" unless e.message.match?(/Missing/)
     end
   end
 
-  handle(:adapter_rejects_extra_handlers) do |state, p|
+  def adapter_rejects_extra_handlers(state, **p)
     d = state[:domain]
+    dd = d
     begin
-      Aver.implement(d, protocol: Aver.unit { nil }) do
-        handle(:go) { |ctx, p| }
-        handle(:peek) { |ctx, p| }
-        handle(:check) { |ctx, p| }
-        handle(:bogus) { |ctx, p| }
+      klass = Class.new(Aver::Adapter) do
+        domain dd
+        protocol :unit, -> { nil }
+        define_method(:go) { |ctx, **k| }
+        define_method(:peek) { |ctx, **k| }
+        define_method(:check) { |ctx, **k| }
+        define_method(:bogus) { |ctx, **k| }
       end
+      klass.validate!
       raise "Expected AdapterError for extra handlers but none raised"
     rescue Aver::AdapterError => e
       raise "Expected /Extra/ in error, got: #{e.message}" unless e.message.match?(/Extra/)
     end
   end
 
-  handle(:trace_records_failure) do |state, p|
-    d = Aver.domain("fail-test") { action :boom }
-    a = Aver.implement(d, protocol: Aver.unit { nil }) do
-      handle(:boom) { |ctx, payload| raise "kaboom" }
+  def trace_records_failure(state, **p)
+    d = Class.new(Aver::Domain) do
+      domain_name "fail-test"
+      action :boom
     end
+    dd = d
+    a = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { nil }
+      define_method(:boom) { |ctx, **kw| raise "kaboom" }
+    end.new
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: nil)
     begin
       ctx.when.boom
@@ -168,20 +194,43 @@ AverCoreAdapter = Aver.implement(AverCore, protocol: Aver.unit { {} }) do
     raise "Expected 'kaboom' error, got #{ctx.trace[0].error}" unless ctx.trace[0].error == "kaboom"
   end
 
-  handle(:domain_extension_inherits) do |state, p|
-    parent = Aver.domain("base") { action :login }
-    child = parent.extend("child") { action :logout }
+  def domain_extension_inherits(state, **p)
+    parent = Class.new(Aver::Domain) do
+      domain_name "base"
+      action :login
+    end
+    child = parent.extend_domain("child") { action :logout }
     unless child.markers.keys.sort == [:login, :logout]
       raise "Expected [:login, :logout], got #{child.markers.keys.sort.inspect}"
     end
     raise "Expected parent to be base domain" unless child.parent == parent
   end
 
-  handle(:composed_suite_works) do |state, p|
-    d1 = Aver.domain("d1") { action :a1 }
-    d2 = Aver.domain("d2") { action :a2 }
-    a1 = Aver.implement(d1, protocol: Aver.unit { [] }) { handle(:a1) { |ctx, pl| ctx << "a1" } }
-    a2 = Aver.implement(d2, protocol: Aver.unit { [] }) { handle(:a2) { |ctx, pl| ctx << "a2" } }
+  def composed_suite_works(state, **p)
+    d1 = Class.new(Aver::Domain) do
+      domain_name "d1"
+      action :a1
+    end
+    d2 = Class.new(Aver::Domain) do
+      domain_name "d2"
+      action :a2
+    end
+    dd1 = d1
+    dd2 = d2
+    proto1 = Aver.unit { [] }
+    proto2 = Aver.unit { [] }
+    a1 = Class.new(Aver::Adapter) do
+      domain dd1
+      protocol :unit, -> { [] }
+      define_method(:a1) { |ctx, **kw| ctx << "a1" }
+    end.new
+    a1.define_singleton_method(:protocol) { proto1 }
+    a2 = Class.new(Aver::Adapter) do
+      domain dd2
+      protocol :unit, -> { [] }
+      define_method(:a2) { |ctx, **kw| ctx << "a2" }
+    end.new
+    a2.define_singleton_method(:protocol) { proto2 }
     Aver.composed_suite(first: [d1, a1], second: [d2, a2]) do |ctx|
       ctx.first.when.a1
       ctx.second.when.a2
@@ -189,14 +238,14 @@ AverCoreAdapter = Aver.implement(AverCore, protocol: Aver.unit { {} }) do
     end
   end
 
-  handle(:trace_format_works) do |state, p|
+  def trace_format_works(state, **p)
     entry = Aver::TraceEntry.new(kind: "action", category: "when", name: "t.op", status: "pass", duration_ms: 5.0)
     output = Aver.format_trace([entry])
     raise "Expected [PASS] in output" unless output.include?("[PASS]")
     raise "Expected WHEN in output" unless output.include?("WHEN")
   end
 
-  handle(:config_snapshot_restore) do |state, p|
+  def config_snapshot_restore(state, **p)
     config = Aver::Configuration.new
     config.teardown_failure_mode = :warn
     snap = config.snapshot
@@ -206,14 +255,14 @@ AverCoreAdapter = Aver.implement(AverCore, protocol: Aver.unit { {} }) do
     raise "Expected :warn after restore, got #{config.teardown_failure_mode}" unless config.teardown_failure_mode == :warn
   end
 
-  handle(:trace_has_length) do |state, p|
+  def trace_has_length(state, **p)
     ctx = state[:ctx] || state[:given_ctx]
     expected = p[:expected]
     actual = ctx.trace.length
     raise "Expected trace length #{expected}, got #{actual}" unless actual == expected
   end
 
-  handle(:trace_entry_passed) do |state, p|
+  def trace_entry_passed(state, **p)
     ctx = state[:ctx] || state[:given_ctx]
     index = p[:index]
     entry = ctx.trace[index]
@@ -221,17 +270,16 @@ AverCoreAdapter = Aver.implement(AverCore, protocol: Aver.unit { {} }) do
     raise "Expected pass at index #{index}, got #{entry.status}" unless entry.status == "pass"
   end
 
-  handle(:coverage_above_zero) do |state, p|
+  def coverage_above_zero(state, **p)
     ctx = state[:ctx]
     cov = ctx.get_coverage
     raise "Expected coverage > 0, got #{cov[:percentage]}" unless cov[:percentage] > 0
   end
 end
 
-Aver.configuration.reset!
-Aver.configuration.adapters << AverCoreAdapter
+Aver.register(AverCoreAdapter)
 
-RSpec.describe "Aver Core (dogfooding)", aver: AverCore do
+RSpec.describe "Aver Core (dogfooding)", aver: AverCoreDomain do
 
   aver_test "create a domain with markers" do |ctx|
     ctx.when.create_domain(name: "test-domain")

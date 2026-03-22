@@ -40,14 +40,24 @@ RSpec.describe Aver::TraceEntry do
   end
 
   describe "trace recording through proxy" do
-    let(:domain) { Aver.domain("t") { action :go; assertion :check } }
+    let(:domain) do
+      Class.new(Aver::Domain) do
+        domain_name "t"
+        action :go
+        assertion :check
+      end
+    end
     let(:protocol) { Aver.unit { Object.new } }
 
     it "records pass entries" do
-      adapter = Aver.implement(domain, protocol: protocol) do
-        handle(:go) { |ctx, p| "done" }
-        handle(:check) { |ctx, p| true }
+      d = domain
+      klass = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:go) { |ctx, **kw| "done" }
+        define_method(:check) { |ctx| true }
       end
+      adapter = klass.new
       ctx = Aver::Context.new(domain: domain, adapter: adapter, protocol_ctx: protocol.setup)
       ctx.when.go(val: 1)
       entries = ctx.trace
@@ -58,10 +68,14 @@ RSpec.describe Aver::TraceEntry do
     end
 
     it "records fail entries" do
-      adapter = Aver.implement(domain, protocol: protocol) do
-        handle(:go) { |ctx, p| raise "boom" }
-        handle(:check) { |ctx, p| }
+      d = domain
+      klass = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:go) { |ctx, **kw| raise "boom" }
+        define_method(:check) { |ctx| }
       end
+      adapter = klass.new
       ctx = Aver::Context.new(domain: domain, adapter: adapter, protocol_ctx: protocol.setup)
       expect { ctx.when.go }.to raise_error("boom")
       entries = ctx.trace
@@ -71,10 +85,14 @@ RSpec.describe Aver::TraceEntry do
     end
 
     it "records payload" do
-      adapter = Aver.implement(domain, protocol: protocol) do
-        handle(:go) { |ctx, p| }
-        handle(:check) { |ctx, p| }
+      d = domain
+      klass = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { Object.new }
+        define_method(:go) { |ctx, **kw| }
+        define_method(:check) { |ctx| }
       end
+      adapter = klass.new
       ctx = Aver::Context.new(domain: domain, adapter: adapter, protocol_ctx: protocol.setup)
       ctx.when.go(x: 42)
       expect(ctx.trace[0].payload).to eq({ x: 42 })

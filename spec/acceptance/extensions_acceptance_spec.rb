@@ -1,6 +1,7 @@
 require "spec_helper"
 
-ExtensionsDomain = Aver.domain("extensions-test") do
+class ExtensionsDomain < Aver::Domain
+  domain_name "extensions-test"
   action :run_end_to_end_extension
   action :setup_parent_adapter_in_config
   action :setup_extension_parent_tracking
@@ -9,23 +10,30 @@ ExtensionsDomain = Aver.domain("extensions-test") do
   assertion :extension_tracks_parent
 end
 
-ExtensionsAdapter = Aver.implement(ExtensionsDomain, protocol: Aver.unit { {} }) do
-  handle(:run_end_to_end_extension) do |state, p|
-    base = Aver.domain("AuthBase") do
+class ExtensionsAdapter < Aver::Adapter
+  domain ExtensionsDomain
+  protocol :unit, -> { {} }
+
+  def run_end_to_end_extension(state, **kw)
+    base = Class.new(Aver::Domain) do
+      domain_name "AuthBase"
       action :login
       assertion :is_logged_in
     end
-    extended = base.extend("AdminAuth") do
+    extended = base.extend_domain("AdminAuth") do
       action :grant_admin
       assertion :is_admin
     end
-    proto = Aver.unit { { user: nil, admin: false } }
-    a = Aver.implement(extended, protocol: proto) do
-      handle(:login) { |ctx, payload| ctx[:user] = payload[:username] }
-      handle(:is_logged_in) { |ctx, payload| raise "not logged in" unless ctx[:user] }
-      handle(:grant_admin) { |ctx, payload| ctx[:admin] = true }
-      handle(:is_admin) { |ctx, payload| raise "not admin" unless ctx[:admin] }
-    end
+    dd = extended
+    a = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { { user: nil, admin: false } }
+      define_method(:login) { |ctx, **k| ctx[:user] = k[:username] }
+      define_method(:is_logged_in) { |ctx| raise "not logged in" unless ctx[:user] }
+      define_method(:grant_admin) { |ctx, **k| ctx[:admin] = true }
+      define_method(:is_admin) { |ctx| raise "not admin" unless ctx[:admin] }
+    end.new
+    proto = Aver::UnitProtocol.new(-> { { user: nil, admin: false } }, name: "unit")
     ctx = Aver::Context.new(domain: extended, adapter: a, protocol_ctx: proto.setup)
     ctx.given.login(username: "alice")
     ctx.then.is_logged_in
@@ -34,37 +42,41 @@ ExtensionsAdapter = Aver.implement(ExtensionsDomain, protocol: Aver.unit { {} })
     state[:trace] = ctx.trace
   end
 
-  handle(:setup_parent_adapter_in_config) do |state, p|
-    base = Aver.domain("ConfigBase") do
+  def setup_parent_adapter_in_config(state, **kw)
+    base = Class.new(Aver::Domain) do
+      domain_name "ConfigBase"
       action :go
       assertion :check
     end
-    child = base.extend("ConfigChild") do
+    child = base.extend_domain("ConfigChild") do
       action :extra
     end
-    proto = Aver.unit { {} }
-    parent_adapter = Aver.implement(base, protocol: proto) do
-      handle(:go) { |ctx, payload| nil }
-      handle(:check) { |ctx, payload| nil }
+    dd = base
+    ac = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:go) { |ctx, **k| nil }
+      define_method(:check) { |ctx| nil }
     end
-    Aver.configuration.reset!
-    Aver.configuration.adapters << parent_adapter
-    state[:found] = Aver.configuration.find_adapters(child)
-    state[:parent_adapter] = parent_adapter
+    config = Aver::Configuration.new
+    config.register(ac)
+    state[:found] = config.find_adapters(base)
+    state[:parent_adapter_class] = ac
   end
 
-  handle(:setup_extension_parent_tracking) do |state, p|
-    parent = Aver.domain("ExtParentTrack") do
+  def setup_extension_parent_tracking(state, **kw)
+    parent = Class.new(Aver::Domain) do
+      domain_name "ExtParentTrack"
       action :base_op
     end
-    child = parent.extend("ExtChildTrack") do
+    child = parent.extend_domain("ExtChildTrack") do
       action :extra
     end
     state[:child] = child
     state[:parent] = parent
   end
 
-  handle(:end_to_end_trace_correct) do |state, p|
+  def end_to_end_trace_correct(state, **kw)
     trace = state[:trace]
     raise "Expected 4 trace entries, got #{trace.length}" unless trace.length == 4
     statuses = trace.map(&:status)
@@ -73,13 +85,13 @@ ExtensionsAdapter = Aver.implement(ExtensionsDomain, protocol: Aver.unit { {} })
     end
   end
 
-  handle(:parent_adapter_found_via_config) do |state, p|
+  def parent_adapter_found_via_config(state, **kw)
     found = state[:found]
     raise "Expected 1 adapter found, got #{found.length}" unless found.length == 1
-    raise "Expected parent adapter to be found" unless found[0].equal?(state[:parent_adapter])
+    raise "Expected parent adapter to be found" unless found[0].adapter_class.equal?(state[:parent_adapter_class])
   end
 
-  handle(:extension_tracks_parent) do |state, p|
+  def extension_tracks_parent(state, **kw)
     child = state[:child]
     parent = state[:parent]
     raise "Expected child.parent to be parent" unless child.parent == parent
@@ -87,7 +99,7 @@ ExtensionsAdapter = Aver.implement(ExtensionsDomain, protocol: Aver.unit { {} })
   end
 end
 
-Aver.configuration.adapters << ExtensionsAdapter
+Aver.register(ExtensionsAdapter)
 
 RSpec.describe "Extensions acceptance", aver: ExtensionsDomain do
 

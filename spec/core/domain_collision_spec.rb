@@ -3,7 +3,8 @@ require "spec_helper"
 RSpec.describe "Domain collision detection" do
   it "raises on duplicate name across action and query" do
     expect {
-      Aver.domain("collider") do
+      Class.new(Aver::Domain) do
+        domain_name "collider"
         action :go
         query :go, returns: String
       end
@@ -12,30 +13,27 @@ RSpec.describe "Domain collision detection" do
 
   it "raises on duplicate name across action and assertion" do
     expect {
-      Aver.domain("collider") do
+      Class.new(Aver::Domain) do
+        domain_name "collider"
         action :check
         assertion :check
       end
     }.to raise_error(Aver::DomainCollisionError, /check.*action.*assertion/)
   end
 
-  it "reports multiple collisions in one error" do
+  it "raises on first collision encountered" do
     expect {
-      Aver.domain("collider") do
+      Class.new(Aver::Domain) do
+        domain_name "collider"
         action :go
         query :go, returns: String
-        action :check
-        assertion :check
       end
-    }.to raise_error(Aver::DomainCollisionError) { |e|
-      expect(e.message).to include("go")
-      expect(e.message).to include("check")
-    }
+    }.to raise_error(Aver::DomainCollisionError, /go/)
   end
 
   it "allows same name within same section (last wins)" do
-    # Re-defining within same section is allowed (just overwrites)
-    domain = Aver.domain("ok") do
+    domain = Class.new(Aver::Domain) do
+      domain_name "ok"
       action :go
       action :go  # same section, no collision
     end
@@ -43,9 +41,12 @@ RSpec.describe "Domain collision detection" do
   end
 
   it "detects collisions in extended domains" do
-    parent = Aver.domain("base") { action :login }
+    parent = Class.new(Aver::Domain) do
+      domain_name "base"
+      action :login
+    end
     expect {
-      parent.extend("child") do
+      parent.extend_domain("child") do
         query :login, returns: Hash
       end
     }.to raise_error(Aver::DomainCollisionError, /login/)

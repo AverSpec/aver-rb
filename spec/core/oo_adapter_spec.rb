@@ -165,7 +165,7 @@ RSpec.describe "OO Adapter (class-based)" do
       Aver.register(OOTaskBoardUnit)
       found = Aver.configuration.find_adapters(OOTaskBoard)
       expect(found.length).to eq(1)
-      expect(found[0]).to eq(OOTaskBoardUnit)
+      expect(found[0].adapter_class).to eq(OOTaskBoardUnit)
     end
   end
 end

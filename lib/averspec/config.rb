@@ -1,73 +1,88 @@
 module Aver
+  # Wraps an Adapter class so it looks like an adapter instance with .protocol, .execute, etc.
+  # Used by aver_test to bridge class-based adapters into the test runner flow.
+  class AdapterClassWrapper
+    attr_reader :adapter_class
+
+    def initialize(adapter_class)
+      @adapter_class = adapter_class
+      @instance = adapter_class.new
+    end
+
+    def protocol
+      @_protocol ||= if adapter_class.protocol_instance
+        adapter_class.protocol_instance
+      elsif adapter_class.protocol_factory
+        Aver::UnitProtocol.new(adapter_class.protocol_factory, name: (adapter_class.protocol_name || "unit").to_s)
+      else
+        raise "No protocol configured for #{adapter_class}"
+      end
+    end
+
+    def domain
+      adapter_class.domain
+    end
+
+    def name
+      (adapter_class.protocol_name || "unit").to_s
+    end
+
+    def domain_name
+      adapter_class.domain&.name || "unknown"
+    end
+
+    def execute(marker_name, ctx, payload = nil)
+      @instance.execute(marker_name, ctx, payload)
+    end
+  end
+
   class Configuration
-    attr_accessor :adapters, :teardown_failure_mode
+    attr_accessor :teardown_failure_mode
 
     def initialize
-      @adapters = []
       @adapter_classes = []
       @teardown_failure_mode = :fail
     end
 
-    # Register an adapter class (OO API) or adapter instance (legacy API)
-    def register(adapter)
-      if adapter.is_a?(Class) && adapter < Aver::Adapter
-        adapter.validate!
-        @adapter_classes << adapter
+    # Register an adapter class
+    def register(adapter_class)
+      if adapter_class.is_a?(Class) && adapter_class < Aver::Adapter
+        adapter_class.validate!
+        @adapter_classes << adapter_class
       else
-        @adapters << adapter
+        raise ArgumentError, "Expected an Aver::Adapter subclass, got #{adapter_class.class}"
       end
     end
 
-    # Find adapters for a domain — supports both class-based and instance-based
+    # Find adapters for a domain — returns wrapped class adapters
     def find_adapters(domain)
-      # Check class-based adapters first
-      class_matches = _find_class_adapters(domain)
-      instance_matches = _find_instance_adapters(domain)
-      class_matches + instance_matches
+      if domain.is_a?(Class) && domain < Aver::Domain
+        matches = @adapter_classes.select { |ac| ac.domain == domain }
+        matches.map { |ac| AdapterClassWrapper.new(ac) }
+      else
+        []
+      end
+    end
+
+    def adapter_classes
+      @adapter_classes.dup
     end
 
     def snapshot
       {
-        adapters: @adapters.dup,
         adapter_classes: @adapter_classes.dup,
         teardown_failure_mode: @teardown_failure_mode,
       }
     end
 
     def restore(snapshot)
-      @adapters = snapshot[:adapters].dup
       @adapter_classes = (snapshot[:adapter_classes] || []).dup
       @teardown_failure_mode = snapshot[:teardown_failure_mode]
     end
 
     def reset!
-      @adapters = []
       @adapter_classes = []
       @teardown_failure_mode = :fail
-    end
-
-    private
-
-    def _find_class_adapters(domain)
-      if domain.is_a?(Class) && domain < Aver::Domain
-        @adapter_classes.select { |ac| ac.domain == domain }
-      else
-        []
-      end
-    end
-
-    def _find_instance_adapters(domain)
-      exact = @adapters.select { |a| a.domain.equal?(domain) }
-      return exact if exact.any?
-
-      current = domain.respond_to?(:parent) ? domain.parent : nil
-      while current
-        parent_matches = @adapters.select { |a| a.domain.equal?(current) }
-        return parent_matches if parent_matches.any?
-        current = current.respond_to?(:parent) ? current.parent : nil
-      end
-
-      []
     end
   end
 

@@ -1,31 +1,43 @@
 require "spec_helper"
 
-MissingAdapterDomain = Aver.domain("missing-adapter-test") do
+class MissingAdapterDomain < Aver::Domain
+  domain_name "missing-adapter-test"
   assertion :missing_adapter_error_lists_registered
 end
 
-MissingAdapterAdapter = Aver.implement(MissingAdapterDomain, protocol: Aver.unit { {} }) do
-  handle(:missing_adapter_error_lists_registered) do |state, p|
+class MissingAdapterAdapter < Aver::Adapter
+  domain MissingAdapterDomain
+  protocol :unit, -> { {} }
+
+  def missing_adapter_error_lists_registered(state, **kw)
     # Create a config with a known adapter, then look up a missing domain.
     config = Aver::Configuration.new
-    known = Aver.domain("KnownDomain") { action :ping }
-    proto = Aver.unit { {} }
-    adapter = Aver.implement(known, protocol: proto) do
-      handle(:ping) { |ctx, payload| nil }
+    known = Class.new(Aver::Domain) do
+      domain_name "KnownDomain"
+      action :ping
     end
-    config.adapters << adapter
+    dd = known
+    adapter_class = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:ping) { |ctx, **k| nil }
+    end
+    config.register(adapter_class)
 
-    missing = Aver.domain("NonExistent") { action :noop }
+    missing = Class.new(Aver::Domain) do
+      domain_name "NonExistent"
+      action :noop
+    end
     found = config.find_adapters(missing)
     raise "Expected no adapters, got #{found.length}" unless found.empty?
 
     # Verify that we can list registered adapter domain names
-    registered_names = config.adapters.map { |a| a.domain.name }
+    registered_names = config.adapter_classes.map { |ac| ac.domain.name }
     raise "Expected 'KnownDomain' in #{registered_names}" unless registered_names.include?("KnownDomain")
   end
 end
 
-Aver.configuration.adapters << MissingAdapterAdapter
+Aver.register(MissingAdapterAdapter)
 
 RSpec.describe "Missing adapter error acceptance", aver: MissingAdapterDomain do
 

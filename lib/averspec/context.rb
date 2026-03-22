@@ -48,23 +48,11 @@ module Aver
     private
 
     def _get_markers
-      if @domain.is_a?(Class) && @domain.respond_to?(:markers)
-        @domain.markers
-      elsif @domain.respond_to?(:markers)
-        @domain.markers
-      else
-        {}
-      end
+      @domain.respond_to?(:markers) ? @domain.markers : {}
     end
 
     def _get_domain_name
-      if @domain.is_a?(Class) && @domain.respond_to?(:domain_name)
-        @domain.domain_name
-      elsif @domain.respond_to?(:name)
-        @domain.name
-      else
-        "unknown"
-      end
+      @domain.respond_to?(:domain_name) ? @domain.domain_name : (@domain.respond_to?(:name) ? @domain.name : "unknown")
     end
   end
 end

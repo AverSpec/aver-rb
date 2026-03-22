@@ -2,7 +2,8 @@ require "spec_helper"
 
 RSpec.describe Aver::NarrativeProxy do
   let(:domain) do
-    Aver.domain("tasks") do
+    Class.new(Aver::Domain) do
+      domain_name "tasks"
       action :create_task
       query :get_task, returns: Hash
       assertion :task_exists
@@ -12,11 +13,15 @@ RSpec.describe Aver::NarrativeProxy do
   let(:protocol) { Aver.unit { [] } }
 
   let(:adapter) do
-    Aver.implement(domain, protocol: protocol) do
-      handle(:create_task) { |ctx, p| ctx << p }
-      handle(:get_task) { |ctx, p| { title: "found" } }
-      handle(:task_exists) { |ctx, p| true }
+    d = domain
+    klass = Class.new(Aver::Adapter) do
+      domain d
+      protocol :unit, -> { [] }
+      define_method(:create_task) { |ctx, **kw| ctx << kw }
+      define_method(:get_task) { |ctx, **kw| { title: "found" } }
+      define_method(:task_exists) { |ctx, **kw| true }
     end
+    klass.new
   end
 
   let(:protocol_ctx) { protocol.setup }
@@ -90,8 +95,16 @@ RSpec.describe Aver::NarrativeProxy do
   describe "keyword args vs hash args" do
     it "handles keyword args" do
       received = nil
-      d = Aver.domain("kw") { action :go }
-      a = Aver.implement(d, protocol: protocol) { handle(:go) { |ctx, p| received = p } }
+      d = Class.new(Aver::Domain) do
+        domain_name "kw"
+        action :go
+      end
+      klass = Class.new(Aver::Adapter) do
+        domain d
+        protocol :unit, -> { [] }
+        define_method(:go) { |ctx, **kw| received = kw }
+      end
+      a = klass.new
       proxy = Aver::NarrativeProxy.new(domain: d, adapter: a, protocol_ctx: protocol_ctx, trace: trace, category: :when, called_markers: called_markers)
       proxy.go(x: 1, y: 2)
       expect(received).to eq({ x: 1, y: 2 })

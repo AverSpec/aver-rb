@@ -2,7 +2,8 @@ require "spec_helper"
 
 RSpec.describe "Suite dispatch + context" do
   let(:domain) do
-    Aver.domain("Cart") do
+    Class.new(Aver::Domain) do
+      domain_name "Cart"
       action :add_item
       query :total, returns: Integer
       assertion :is_empty
@@ -12,11 +13,15 @@ RSpec.describe "Suite dispatch + context" do
   let(:protocol) { Aver.unit { { calls: [] } } }
 
   let(:adapter) do
-    Aver.implement(domain, protocol: protocol) do
-      handle(:add_item) { |ctx, p| ctx[:calls] << "add:#{p[:name]}" }
-      handle(:total) { |ctx, p| 42 }
-      handle(:is_empty) { |ctx, p| nil }
+    d = domain
+    klass = Class.new(Aver::Adapter) do
+      domain d
+      protocol :unit, -> { { calls: [] } }
+      define_method(:add_item) { |ctx, **kw| ctx[:calls] << "add:#{kw[:name]}" }
+      define_method(:total) { |ctx| 42 }
+      define_method(:is_empty) { |ctx| nil }
     end
+    klass.new
   end
 
   def make_ctx(d = domain, a = adapter, p = protocol)
@@ -49,14 +54,19 @@ RSpec.describe "Suite dispatch + context" do
     end
 
     it "dispatches parameterized queries" do
-      filter_domain = Aver.domain("Filter") do
+      filter_domain = Class.new(Aver::Domain) do
+        domain_name "Filter"
         query :items_by_status, payload: Hash, returns: Array
       end
       items = { "active" => ["a", "b"], "done" => ["c"] }
       p = Aver.unit { {} }
-      a = Aver.implement(filter_domain, protocol: p) do
-        handle(:items_by_status) { |ctx, payload| items[payload[:status]] }
+      fd = filter_domain
+      klass = Class.new(Aver::Adapter) do
+        domain fd
+        protocol :unit, -> { {} }
+        define_method(:items_by_status) { |ctx, **kw| items[kw[:status]] }
       end
+      a = klass.new
       proto_ctx = p.setup
       ctx = Aver::Context.new(domain: filter_domain, adapter: a, protocol_ctx: proto_ctx)
       result = ctx.query.items_by_status(status: "active")
@@ -64,16 +74,21 @@ RSpec.describe "Suite dispatch + context" do
     end
 
     it "works with domain that has no queries" do
-      d = Aver.domain("ActionOnly") do
+      d = Class.new(Aver::Domain) do
+        domain_name "ActionOnly"
         action :fire
         assertion :fired
       end
       state = { fired: false }
       p = Aver.unit { state }
-      a = Aver.implement(d, protocol: p) do
-        handle(:fire) { |ctx, payload| ctx[:fired] = true }
-        handle(:fired) { |ctx, payload| raise "not fired" unless ctx[:fired] }
+      dd = d
+      klass = Class.new(Aver::Adapter) do
+        domain dd
+        protocol :unit, -> { { fired: false } }
+        define_method(:fire) { |ctx, **kw| ctx[:fired] = true }
+        define_method(:fired) { |ctx| raise "not fired" unless ctx[:fired] }
       end
+      a = klass.new
       proto_ctx = p.setup
       ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto_ctx)
       ctx.when.fire
@@ -106,11 +121,18 @@ RSpec.describe "Suite dispatch + context" do
     end
 
     it "records failure in trace" do
-      d = Aver.domain("Fail") { assertion :check }
-      p = Aver.unit { {} }
-      a = Aver.implement(d, protocol: p) do
-        handle(:check) { |ctx, payload| raise "boom" }
+      d = Class.new(Aver::Domain) do
+        domain_name "Fail"
+        assertion :check
       end
+      p = Aver.unit { {} }
+      dd = d
+      klass = Class.new(Aver::Adapter) do
+        domain dd
+        protocol :unit, -> { {} }
+        define_method(:check) { |ctx| raise "boom" }
+      end
+      a = klass.new
       ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: p.setup)
       expect { ctx.then.check }.to raise_error("boom")
       expect(ctx.trace[0].status).to eq("fail")

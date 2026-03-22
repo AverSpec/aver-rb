@@ -2,7 +2,8 @@ require "spec_helper"
 
 RSpec.describe "Per-step telemetry verification" do
   let(:domain) do
-    Aver.domain("Order") do
+    Class.new(Aver::Domain) do
+      domain_name "Order"
       action :checkout
     end
   end
@@ -37,9 +38,13 @@ RSpec.describe "Per-step telemetry verification" do
     # Set telemetry on the marker
     d.markers.values.first.telemetry = telemetry_expectation
 
-    Aver.implement(d, protocol: proto) do
-      handle(:checkout) { |ctx, p| "done" }
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:checkout) { |ctx, **kw| "done" }
     end
+    klass.new
   end
 
   around(:each) do |example|
@@ -117,16 +122,23 @@ RSpec.describe "Per-step telemetry verification" do
     proto = make_protocol(collector)
 
     # Set callable telemetry
-    d = Aver.domain("ParamOrder") { action :checkout }
+    d = Class.new(Aver::Domain) do
+      domain_name "ParamOrder"
+      action :checkout
+    end
     d.markers[:checkout].telemetry = ->(payload) {
       Aver::TelemetryExpectation.new(
         span: "order.checkout",
         attributes: { "order.id" => payload[:order_id] }
       )
     }
-    adapter = Aver.implement(d, protocol: proto) do
-      handle(:checkout) { |ctx, p| "done" }
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:checkout) { |ctx, **kw| "done" }
     end
+    adapter = klass.new
     ctx = Aver::Context.new(domain: d, adapter: adapter, protocol_ctx: proto.setup, protocol: proto)
     ctx.when.checkout(order_id: "ORD-42")
 
@@ -139,11 +151,18 @@ RSpec.describe "Per-step telemetry verification" do
     collector = fake_collector.new([])
     proto = make_protocol(collector)
 
-    d = Aver.domain("NoTel") { action :checkout }
-    # No telemetry set on marker
-    adapter = Aver.implement(d, protocol: proto) do
-      handle(:checkout) { |ctx, p| "done" }
+    d = Class.new(Aver::Domain) do
+      domain_name "NoTel"
+      action :checkout
     end
+    # No telemetry set on marker
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:checkout) { |ctx, **kw| "done" }
+    end
+    adapter = klass.new
     ctx = Aver::Context.new(domain: d, adapter: adapter, protocol_ctx: proto.setup, protocol: proto)
     ctx.when.checkout
 
@@ -157,11 +176,18 @@ RSpec.describe "Per-step telemetry verification" do
     proto.define_singleton_method(:teardown) { |ctx| nil }
     # proto.telemetry is nil
 
-    d = Aver.domain("NoCollector") { action :checkout }
-    d.markers[:checkout].telemetry = Aver::TelemetryExpectation.new(span: "order.checkout")
-    adapter = Aver.implement(d, protocol: proto) do
-      handle(:checkout) { |ctx, p| "done" }
+    d = Class.new(Aver::Domain) do
+      domain_name "NoCollector"
+      action :checkout
     end
+    d.markers[:checkout].telemetry = Aver::TelemetryExpectation.new(span: "order.checkout")
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:checkout) { |ctx, **kw| "done" }
+    end
+    adapter = klass.new
     ctx = Aver::Context.new(domain: d, adapter: adapter, protocol_ctx: proto.setup, protocol: proto)
     ctx.when.checkout
 
@@ -175,11 +201,18 @@ RSpec.describe "Per-step telemetry verification" do
     collector = fake_collector.new([])
     proto = make_protocol(collector)
 
-    d = Aver.domain("OffMode") { action :checkout }
-    d.markers[:checkout].telemetry = Aver::TelemetryExpectation.new(span: "order.checkout")
-    adapter = Aver.implement(d, protocol: proto) do
-      handle(:checkout) { |ctx, p| "done" }
+    d = Class.new(Aver::Domain) do
+      domain_name "OffMode"
+      action :checkout
     end
+    d.markers[:checkout].telemetry = Aver::TelemetryExpectation.new(span: "order.checkout")
+    dd = d
+    klass = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:checkout) { |ctx, **kw| "done" }
+    end
+    adapter = klass.new
     ctx = Aver::Context.new(domain: d, adapter: adapter, protocol_ctx: proto.setup, protocol: proto)
     ctx.when.checkout
 

@@ -1,6 +1,7 @@
 require "spec_helper"
 
-DomainVocabularyDomain = Aver.domain("domain-vocabulary") do
+class DomainVocabularyDomain < Aver::Domain
+  domain_name "domain-vocabulary"
   action :create_vocabulary_domain
   action :create_metadata_domain
   action :create_propagation_domain
@@ -11,9 +12,13 @@ DomainVocabularyDomain = Aver.domain("domain-vocabulary") do
   assertion :markers_report_correct_kind
 end
 
-DomainVocabularyAdapter = Aver.implement(DomainVocabularyDomain, protocol: Aver.unit { {} }) do
-  handle(:create_vocabulary_domain) do |state, p|
-    state[:domain] = Aver.domain("vocabulary") do
+class DomainVocabularyAdapter < Aver::Adapter
+  domain DomainVocabularyDomain
+  protocol :unit, -> { {} }
+
+  def create_vocabulary_domain(state, **kw)
+    state[:domain] = Class.new(Aver::Domain) do
+      domain_name "vocabulary"
       action :create
       action :update
       query :get_count, returns: Integer
@@ -23,31 +28,34 @@ DomainVocabularyAdapter = Aver.implement(DomainVocabularyDomain, protocol: Aver.
     end
   end
 
-  handle(:create_metadata_domain) do |state, p|
-    state[:domain] = Aver.domain("meta-test") do
+  def create_metadata_domain(state, **kw)
+    state[:domain] = Class.new(Aver::Domain) do
+      domain_name "meta-test"
       action :go, payload: { id: String }
       query :peek, payload: Hash, returns: Array
       assertion :check, payload: { status: String }
     end
   end
 
-  handle(:create_propagation_domain) do |state, p|
-    state[:domain] = Aver.domain("propagation") do
+  def create_propagation_domain(state, **kw)
+    state[:domain] = Class.new(Aver::Domain) do
+      domain_name "propagation"
       action :go
       query :peek, returns: Hash
       assertion :check
     end
   end
 
-  handle(:create_kinds_domain) do |state, p|
-    state[:domain] = Aver.domain("vocab-kinds") do
+  def create_kinds_domain(state, **kw)
+    state[:domain] = Class.new(Aver::Domain) do
+      domain_name "vocab-kinds"
       action :do_thing
       query :get_thing, returns: Hash
       assertion :check_thing
     end
   end
 
-  handle(:captures_all_marker_kinds) do |state, p|
+  def captures_all_marker_kinds(state, **kw)
     d = state[:domain]
     raise "Expected 6 markers, got #{d.markers.length}" unless d.markers.length == 6
     kinds = d.markers.values.map(&:kind)
@@ -56,7 +64,7 @@ DomainVocabularyAdapter = Aver.implement(DomainVocabularyDomain, protocol: Aver.
     raise "Expected 2 assertions, got #{kinds.count(:assertion)}" unless kinds.count(:assertion) == 2
   end
 
-  handle(:markers_store_metadata) do |state, p|
+  def markers_store_metadata(state, **kw)
     d = state[:domain]
     unless d.markers[:go].payload_type == { id: String }
       raise "Expected go payload { id: String }, got #{d.markers[:go].payload_type.inspect}"
@@ -69,7 +77,7 @@ DomainVocabularyAdapter = Aver.implement(DomainVocabularyDomain, protocol: Aver.
     end
   end
 
-  handle(:domain_name_propagates) do |state, p|
+  def domain_name_propagates(state, **kw)
     d = state[:domain]
     d.markers.each_value do |m|
       unless m.domain_name == "propagation"
@@ -78,7 +86,7 @@ DomainVocabularyAdapter = Aver.implement(DomainVocabularyDomain, protocol: Aver.
     end
   end
 
-  handle(:markers_report_correct_kind) do |state, p|
+  def markers_report_correct_kind(state, **kw)
     d = state[:domain]
     raise "Expected :action, got #{d.markers[:do_thing].kind}" unless d.markers[:do_thing].kind == :action
     raise "Expected :query, got #{d.markers[:get_thing].kind}" unless d.markers[:get_thing].kind == :query
@@ -86,7 +94,7 @@ DomainVocabularyAdapter = Aver.implement(DomainVocabularyDomain, protocol: Aver.
   end
 end
 
-Aver.configuration.adapters << DomainVocabularyAdapter
+Aver.register(DomainVocabularyAdapter)
 
 RSpec.describe "Domain vocabulary acceptance", aver: DomainVocabularyDomain do
 

@@ -2,19 +2,23 @@ require "spec_helper"
 
 RSpec.describe "Error enhancement with formatted trace" do
   let(:domain) do
-    Aver.domain("Enhanced") do
+    Class.new(Aver::Domain) do
+      domain_name "Enhanced"
       action :setup_data
       assertion :verify
     end
   end
 
   def make_adapter
+    d = domain
     p = Aver.unit { {} }
-    a = Aver.implement(domain, protocol: p) do
-      handle(:setup_data) { |ctx, payload| nil }
-      handle(:verify) { |ctx, payload| raise "expected 42, got 0" }
+    klass = Class.new(Aver::Adapter) do
+      domain d
+      protocol :unit, -> { {} }
+      define_method(:setup_data) { |ctx, **kw| nil }
+      define_method(:verify) { |ctx| raise "expected 42, got 0" }
     end
-    [a, p]
+    [klass.new, p]
   end
 
   it "trace appended to assertion error" do

@@ -1,16 +1,21 @@
 require "spec_helper"
 
-TelemetryDomain = Aver.domain("telemetry-test") do
+class TelAcceptDomain < Aver::Domain
+  domain_name "telemetry-test"
   action :run_span_matching
   assertion :span_matched_correctly
 end
 
-TelemetryAdapter = Aver.implement(TelemetryDomain, protocol: Aver.unit { {} }) do
-  handle(:run_span_matching) do |state, p|
+class TelAcceptAdapter < Aver::Adapter
+  domain TelAcceptDomain
+  protocol :unit, -> { {} }
+
+  def run_span_matching(state, **kw)
     old_mode = ENV["AVER_TELEMETRY_MODE"]
     ENV["AVER_TELEMETRY_MODE"] = "fail"
 
-    d = Aver.domain("TelAccept") do
+    d = Class.new(Aver::Domain) do
+      domain_name "TelAccept"
       action :checkout
     end
 
@@ -32,9 +37,12 @@ TelemetryAdapter = Aver.implement(TelemetryDomain, protocol: Aver.unit { {} }) d
       attributes: { "order.id" => "42" }
     )
 
-    a = Aver.implement(d, protocol: proto) do
-      handle(:checkout) { |ctx, p| "done" }
-    end
+    dd = d
+    a = Class.new(Aver::Adapter) do
+      domain dd
+      protocol :unit, -> { {} }
+      define_method(:checkout) { |ctx, **k| "done" }
+    end.new
     ctx = Aver::Context.new(domain: d, adapter: a, protocol_ctx: proto.setup, protocol: proto)
     ctx.when.checkout
 
@@ -47,7 +55,7 @@ TelemetryAdapter = Aver.implement(TelemetryDomain, protocol: Aver.unit { {} }) d
     end
   end
 
-  handle(:span_matched_correctly) do |state, p|
+  def span_matched_correctly(state, **kw)
     entry = state[:trace_entry]
     raise "Expected telemetry to be present" if entry.telemetry.nil?
     raise "Expected telemetry.matched to be true" unless entry.telemetry.matched == true
@@ -55,9 +63,9 @@ TelemetryAdapter = Aver.implement(TelemetryDomain, protocol: Aver.unit { {} }) d
   end
 end
 
-Aver.configuration.adapters << TelemetryAdapter
+Aver.register(TelAcceptAdapter)
 
-RSpec.describe "Telemetry acceptance", aver: TelemetryDomain do
+RSpec.describe "Telemetry acceptance", aver: TelAcceptDomain do
 
   aver_test "span matching in full context" do |ctx|
     ctx.when.run_span_matching

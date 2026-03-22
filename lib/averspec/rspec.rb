@@ -12,7 +12,7 @@ module Aver
         adapters = Aver.configuration.find_adapters(domain)
 
         if adapters.empty?
-          registered_names = Aver.configuration.adapters.map { |a| a.domain.name }
+          registered_names = Aver.configuration.adapter_classes.map { |ac| ac.domain&.name }
           if registered_names.any?
             raise Aver::AdapterError, "No adapters registered for domain '#{domain.name}'. Registered adapters: #{registered_names.inspect}"
           else
@@ -133,9 +133,7 @@ module Aver
 end
 
 RSpec.configure do |config|
-  # Legacy: aver: DomainInstance
   config.include Aver::RSpec, aver: ->(v) {
-    v.is_a?(Aver::DomainInstance) ||
-    (v.is_a?(Class) && v < Aver::Domain)
+    v.is_a?(Class) && v < Aver::Domain
   }
 end
