@@ -54,4 +54,8 @@ module Aver
     builder = AdapterBuilder.new(domain, protocol, &block)
     builder.build
   end
+
+  def self.adapt(domain, protocol:, &block)
+    implement(domain, protocol: protocol, &block)
+  end
 end

@@ -81,4 +81,24 @@ RSpec.describe Aver::Adapter do
       expect { adapter.execute(:nope, :ctx, nil) }.to raise_error(/No handler for nope/)
     end
   end
+
+  describe "Aver.adapt alias" do
+    it "works the same as Aver.implement" do
+      adapter = Aver.adapt(domain, protocol: protocol) do
+        handle(:create_task) { |ctx, p| }
+        handle(:task_exists) { |ctx, p| }
+      end
+      expect(adapter).to be_a(Aver::Adapter)
+      expect(adapter.name).to eq("unit")
+      expect(adapter.domain_name).to eq("tasks")
+    end
+
+    it "raises on missing handlers like implement" do
+      expect {
+        Aver.adapt(domain, protocol: protocol) do
+          handle(:create_task) { |ctx, p| }
+        end
+      }.to raise_error(Aver::AdapterError, /Missing handlers.*task_exists/)
+    end
+  end
 end
