@@ -40,11 +40,9 @@ TaskBoardAdapter = Aver.implement(TaskBoard, protocol: Aver.unit { Board.new }) 
   handle(:task_in_status) { |board, p| expect(board.get(p[:title])[:status]).to eq(p[:status]) }
 end
 
+Aver.configuration.adapters << TaskBoardAdapter
+
 RSpec.describe "Task Board", aver: TaskBoard do
-  before(:all) do
-    Aver.configuration.reset!
-    Aver.configuration.adapters << TaskBoardAdapter
-  end
 
   aver_test "create a task with default status" do |ctx|
     ctx.when.create_task(title: "Fix bug")
