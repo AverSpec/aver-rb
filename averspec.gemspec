@@ -3,9 +3,13 @@ Gem::Specification.new do |s|
   s.version     = "0.0.1"
   s.summary     = "Domain-driven acceptance testing for Ruby"
   s.description = "Know your system works. Aver is a domain-driven acceptance testing framework that separates test intent from implementation."
-  s.authors     = ["AverSpec"]
+  s.authors     = ["Nate Jackson"]
   s.license     = "MIT"
   s.homepage    = "https://averspec.dev"
+  s.metadata    = {
+    "source_code_uri" => "https://github.com/AverSpec/aver-rb",
+    "homepage_uri"    => "https://averspec.dev",
+  }
   s.files       = Dir["lib/**/*.rb", "exe/*"]
   s.executables = ["aver"]
   s.bindir      = "exe"
