@@ -104,27 +104,35 @@ module Aver
       adapter_classes = Aver.configuration.instance_variable_get(:@adapter_classes)
         .select { |ac| ac.domain == domain_class }
 
-      adapter_classes.each do |adapter_class|
-        proto_name = adapter_class.protocol_name || "unknown"
+      return if adapter_classes.empty?
 
-        base.context "[#{proto_name}]" do
-          let(:ctx) do
-            protocol_obj = if adapter_class.protocol_instance
-              adapter_class.protocol_instance
-            elsif adapter_class.protocol_factory
-              Aver::UnitProtocol.new(adapter_class.protocol_factory, name: adapter_class.protocol_name.to_s)
-            else
-              raise "No protocol configured for #{adapter_class}"
-            end
+      build_ctx = ->(adapter_class) do
+        protocol_obj = if adapter_class.protocol_instance
+          adapter_class.protocol_instance
+        elsif adapter_class.protocol_factory
+          Aver::UnitProtocol.new(adapter_class.protocol_factory, name: adapter_class.protocol_name.to_s)
+        else
+          raise "No protocol configured for #{adapter_class}"
+        end
 
-            protocol_ctx = protocol_obj.setup
-            adapter_inst = adapter_class.new
-            Aver::Context.new(
-              domain: domain_class,
-              adapter: adapter_inst,
-              protocol_ctx: protocol_ctx,
-              protocol: protocol_obj
-            )
+        protocol_ctx = protocol_obj.setup
+        adapter_inst = adapter_class.new
+        Aver::Context.new(
+          domain: domain_class,
+          adapter: adapter_inst,
+          protocol_ctx: protocol_ctx,
+          protocol: protocol_obj
+        )
+      end
+
+      if adapter_classes.size == 1
+        adapter_class = adapter_classes.first
+        base.let(:ctx) { build_ctx.call(adapter_class) }
+      else
+        adapter_classes.each do |adapter_class|
+          proto_name = adapter_class.protocol_name || "unknown"
+          base.context "[#{proto_name}]" do
+            let(:ctx) { build_ctx.call(adapter_class) }
           end
         end
       end
@@ -134,6 +142,10 @@ end
 
 RSpec.configure do |config|
   config.include Aver::RSpec, aver: ->(v) {
+    v.is_a?(Class) && v < Aver::Domain
+  }
+
+  config.include Aver::RSpecClassDomain, described_class: ->(v) {
     v.is_a?(Class) && v < Aver::Domain
   }
 end
