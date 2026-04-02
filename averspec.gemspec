@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name        = "averspec"
-  s.version     = "0.0.1"
+  s.version     = "0.1.0"
   s.summary     = "Domain-driven acceptance testing for Ruby"
   s.description = "Know your system works. Aver is a domain-driven acceptance testing framework that separates test intent from implementation."
   s.authors     = ["Nate Jackson"]
